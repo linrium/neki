@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: knative-serving
+---
+apiVersion: operator.knative.dev/v1beta1
+kind: KnativeServing
+metadata:
+  name: knative-serving
+  namespace: knative-serving
+spec:
+  config:
+    domain:
+      example.com: ""
+    network:
+      ingress-class: kourier.ingress.networking.knative.dev
+  ingress:
+    istio:
+      enabled: false
+    kourier:
+      enabled: true
