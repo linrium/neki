@@ -44,6 +44,49 @@ kubectl port-forward --namespace kong service/$(kubectl get service --namespace 
 curl -i http://localhost:8080/echo
 ```
 
+## Knative path-style function routes
+
+Knative Serving routes requests by hostname, for example
+`hello-bun-ts.default.example.com`. Kong can expose a path-style API in front of
+Knative with one generic `/functions/:function-name` route.
+
+The route sends all `/functions/*` requests to a lightweight in-cluster router.
+That router derives the Knative hostname from the first path segment, strips the
+function prefix, and forwards the request to Kourier.
+
+Install the generic route for functions in the `default` namespace:
+
+```bash
+FUNCTION_NAMESPACE=default \
+KNATIVE_DOMAIN=example.com \
+envsubst '${FUNCTION_NAMESPACE} ${KNATIVE_DOMAIN}' < infra/kong/knative-functions-route.yaml | kubectl apply -f -
+```
+
+Then port-forward Kong and invoke the service without a manual `Host` header:
+
+```bash
+kubectl port-forward --namespace kong service/$(kubectl get service --namespace kong --selector gateway-operator.konghq.com/dataplane-service-type=ingress --output jsonpath='{.items[0].metadata.name}') 8080:80
+curl -i http://localhost:8080/functions/hello-bun-ts
+```
+
+Requests below the function prefix are forwarded with the prefix removed. For
+example, `/functions/hello-bun-ts/healthz` reaches Knative as `/healthz`.
+
+If the router was already installed, restart it after applying ConfigMap
+changes:
+
+```bash
+kubectl rollout restart deployment/knative-function-router --namespace kong
+kubectl rollout status deployment/knative-function-router --namespace kong --timeout=180s
+```
+
+This single route works for any Knative Service in the configured
+`FUNCTION_NAMESPACE`. For example, `/functions/my-api` forwards with
+`Host: my-api.default.example.com`. If you need to route functions from multiple
+namespaces through one public API, use a namespace path segment such as
+`/functions/:namespace/:function-name` or install one router per namespace with
+a different path prefix.
+
 Configuration knobs:
 
 - `GATEWAY_API_VERSION`, default `v1.5.1`
