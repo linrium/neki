@@ -23,6 +23,10 @@ data:
         server kourier.knative-serving.svc.cluster.local:80;
       }
 
+      upstream restate_ingress {
+        server restate.restate-test.svc.cluster.local:8080;
+      }
+
       server {
         listen 8080;
 
@@ -33,6 +37,38 @@ data:
 
         location = /functions {
           return 404;
+        }
+
+        location ~ ^/functions/knative-restate-go/restate(?<restate_api_path>/.*)?$ {
+          set $target_path $restate_api_path;
+
+          if ($target_path = "") {
+            set $target_path "";
+          }
+
+          proxy_http_version 1.1;
+          proxy_set_header Host $host;
+          proxy_set_header X-Forwarded-Host $host;
+          proxy_set_header X-Forwarded-Prefix "/functions/knative-restate-go/restate";
+          proxy_set_header X-Forwarded-Proto $scheme;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_pass http://restate_ingress/restate$target_path$is_args$args;
+        }
+
+        location ~ ^/functions/knative-restate-go(?<restate_handler_path>/.*)$ {
+          set $target_path $restate_handler_path;
+
+          if ($target_path = "") {
+            return 404;
+          }
+
+          proxy_http_version 1.1;
+          proxy_set_header Host $host;
+          proxy_set_header X-Forwarded-Host $host;
+          proxy_set_header X-Forwarded-Prefix "/functions/knative-restate-go";
+          proxy_set_header X-Forwarded-Proto $scheme;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_pass http://restate_ingress$target_path$is_args$args;
         }
 
         location ~ ^/functions/(?<function_name>[a-z0-9]([-a-z0-9]*[a-z0-9])?)(?<function_path>/.*)?$ {
