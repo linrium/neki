@@ -6,7 +6,8 @@ https://www.restate.dev/blog/building-stateful-serverless-applications-with-knat
 
 The example deploys a Knative service that exposes:
 
-- `Signup/Signup`: initializes a user, waits on an activation awakeable, then activates the user.
+- `Signup/Signup`: accepts a signup request and asynchronously starts the durable activation flow.
+- `Signup/RunSignup`: initializes a user, waits on an activation awakeable, logs the activation event, then activates the user.
 - `User/{username}/Get`: reads the user state stored in a Restate Virtual Object.
 
 ## Prerequisites
@@ -42,7 +43,7 @@ kubectl port-forward -n restate-test svc/restate 8080:8080
 Start a signup request:
 
 ```bash
-curl -v http://localhost:8080/restate/call/Signup/Signup \
+curl -v http://localhost:8080/Signup/Signup \
   --json '{
     "username": "ada",
     "name": "Ada",
@@ -51,7 +52,9 @@ curl -v http://localhost:8080/restate/call/Signup/Signup \
   }'
 ```
 
-The request waits for activation. In another terminal, check the Knative pod logs for the awakeable ID:
+The request returns immediately with the background `RunSignup` invocation ID.
+
+Check the Knative pod logs for the awakeable ID:
 
 ```bash
 kubectl logs -n default -l serving.knative.dev/service=knative-restate-go -c user-container --tail=50
@@ -63,8 +66,10 @@ Resolve the awakeable using the command printed in the log:
 curl -X POST http://localhost:8080/restate/awakeables/<awakeable-id>/resolve
 ```
 
+After the event is received, the service logs `activation event received` and activates the user.
+
 Read the stored user:
 
 ```bash
-curl http://localhost:8080/restate/call/User/ada/Get --json '{}'
+curl http://localhost:8080/User/ada/Get --json '{}'
 ```

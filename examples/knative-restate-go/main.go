@@ -23,6 +23,12 @@ type NewUser struct {
 	Password string `json:"password"`
 }
 
+type SignupAccepted struct {
+	Username     string `json:"username"`
+	InvocationID string `json:"invocationId"`
+	Message      string `json:"message"`
+}
+
 type userObject struct{}
 
 func (u *userObject) ServiceName() string { return "User" }
@@ -64,7 +70,19 @@ type signupService struct{}
 
 func (s *signupService) ServiceName() string { return "Signup" }
 
-func (s *signupService) Signup(ctx restate.Context, newUser NewUser) (string, error) {
+func (s *signupService) Signup(ctx restate.Context, newUser NewUser) (SignupAccepted, error) {
+	invocationID := restate.ServiceSend(ctx, "Signup", "RunSignup").
+		Send(newUser, restate.WithIdempotencyKey("signup-"+newUser.Username)).
+		GetInvocationId()
+
+	return SignupAccepted{
+		Username:     newUser.Username,
+		InvocationID: invocationID,
+		Message:      "signup accepted; waiting for activation event",
+	}, nil
+}
+
+func (s *signupService) RunSignup(ctx restate.Context, newUser NewUser) (string, error) {
 	user := User{
 		Name:     newUser.Name,
 		Surname:  newUser.Surname,
@@ -87,6 +105,14 @@ func (s *signupService) Signup(ctx restate.Context, newUser NewUser) (string, er
 	}
 
 	_, err = activation.Result()
+	if err != nil {
+		return "", err
+	}
+
+	_, err = restate.Run(ctx, func(ctx restate.RunContext) (restate.Void, error) {
+		ctx.Log().Info("activation event received", "username", newUser.Username)
+		return restate.Void{}, nil
+	})
 	if err != nil {
 		return "", err
 	}
