@@ -1,0 +1,8 @@
+{
+  "type": "thingamajig",
+  "source": "dapr-knative-pubsub",
+  "data": {
+    "description": "Hello, Thingamajig!",
+    "price": 5
+  }
+}

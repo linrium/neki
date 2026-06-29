@@ -1,0 +1,9 @@
+{
+  "type": "gadget",
+  "source": "dapr-knative-pubsub",
+  "data": {
+    "description": "Hello, Gadget!",
+    "price": 75,
+    "gadgetField": "gadgets only"
+  }
+}

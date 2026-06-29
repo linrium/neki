@@ -1,0 +1,9 @@
+{
+  "type": "widget",
+  "source": "dapr-knative-pubsub",
+  "data": {
+    "description": "Hello, Widget!",
+    "price": 25,
+    "widgetField": "widgets only"
+  }
+}

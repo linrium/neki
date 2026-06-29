@@ -1,0 +1,29 @@
+# Base Dapr control plane values for this repo.
+#
+# The installer pins the chart version with --version instead of pinning
+# global.tag here. That keeps the runtime tag aligned with the selected chart
+# unless an operator explicitly overrides it.
+global:
+  logAsJson: true
+  ha:
+    enabled: false
+  mtls:
+    enabled: true
+  prometheus:
+    enabled: true
+    port: 9090
+
+dapr_operator:
+  logLevel: info
+
+dapr_placement:
+  logLevel: info
+
+dapr_sentry:
+  logLevel: info
+
+dapr_sidecar_injector:
+  logLevel: info
+
+dapr_scheduler:
+  logLevel: info

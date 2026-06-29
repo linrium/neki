@@ -1,0 +1,11 @@
+# Optional high availability overlay.
+#
+# Use with:
+#   ENABLE_HA=true ./infra/dapr/install.sh
+global:
+  ha:
+    enabled: true
+    replicaCount: 3
+    podAntiAffinityPolicy: preferredDuringSchedulingIgnoredDuringExecution
+    disruption:
+      maximumUnavailable: 25%
