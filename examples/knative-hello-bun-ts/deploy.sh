@@ -22,7 +22,8 @@ random_tag() {
   fi
 }
 
-IMAGE="${IMAGE:-${IMAGE_REPOSITORY}:$(random_tag)}"
+IMAGE_TAG="${IMAGE_TAG:-$(random_tag)}"
+IMAGE="${IMAGE:-${IMAGE_REPOSITORY}:${IMAGE_TAG}}"
 
 need docker
 need kubectl

@@ -26,7 +26,13 @@ The script builds `dev.local/hello-bun-ts:<random-tag>`, configures Knative to
 skip tag-to-digest resolution for `dev.local`, and deploys the service with
 `imagePullPolicy: Never` so Docker Desktop Kubernetes uses the local image.
 
-Override the generated image if needed:
+Override just the generated tag if needed:
+
+```bash
+IMAGE_TAG=debug ./deploy.sh
+```
+
+Override the full image if needed:
 
 ```bash
 IMAGE=dev.local/hello-bun-ts:debug ./deploy.sh

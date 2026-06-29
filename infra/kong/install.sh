@@ -52,17 +52,49 @@ ingress_service_node_port() {
     --output 'jsonpath={.items[0].spec.ports[?(@.name=="http")].nodePort}'
 }
 
+wait_for_resource_by_selector() {
+  local resource="$1"
+  local selector="$2"
+  local description="$3"
+  local deadline
+
+  deadline=$((SECONDS + ${TIMEOUT%s}))
+
+  echo "Waiting for ${description} to be created"
+  while (( SECONDS < deadline )); do
+    if [[ -n "$(kubectl get "${resource}" --namespace kong --selector "${selector}" --output 'jsonpath={.items[0].metadata.name}')" ]]; then
+      return
+    fi
+
+    sleep 2
+  done
+
+  echo "Timed out waiting for ${description} to be created" >&2
+  kubectl get "${resource}" --namespace kong --selector "${selector}" >&2 || true
+  exit 1
+}
+
 wait_for_gateway_ready() {
   kubectl wait gateway/kong \
     --namespace kong \
     --for=condition=Accepted=True \
     --timeout "${TIMEOUT}"
 
+  wait_for_resource_by_selector \
+    deployment \
+    gateway-operator.konghq.com/managed-by=dataplane \
+    "Kong DataPlane deployment"
+
   kubectl wait deployment \
     --namespace kong \
     --selector gateway-operator.konghq.com/managed-by=dataplane \
     --for=condition=Available=True \
     --timeout "${TIMEOUT}"
+
+  wait_for_resource_by_selector \
+    service \
+    gateway-operator.konghq.com/dataplane-service-type=ingress \
+    "Kong ingress service"
 
   if [[ "$(gateway_condition_status Programmed)" == "True" ]]; then
     return
