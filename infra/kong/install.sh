@@ -9,6 +9,9 @@ TIMEOUT="${TIMEOUT:-180s}"
 INSTALL_ECHO="${INSTALL_ECHO:-true}"
 ECHO_SERVICE_URL="${ECHO_SERVICE_URL:-https://developer.konghq.com/manifests/kic/echo-service.yaml}"
 REQUIRE_GATEWAY_PROGRAMMED="${REQUIRE_GATEWAY_PROGRAMMED:-false}"
+INSTALL_KNATIVE_FUNCTIONS="${INSTALL_KNATIVE_FUNCTIONS:-true}"
+FUNCTION_NAMESPACE="${FUNCTION_NAMESPACE:-default}"
+KNATIVE_DOMAIN="${KNATIVE_DOMAIN:-example.com}"
 
 need() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -117,6 +120,7 @@ wait_for_gateway_ready() {
 
 need helm
 need kubectl
+need envsubst
 
 echo "Installing Gateway API CRDs ${GATEWAY_API_VERSION}"
 kubectl apply \
@@ -151,6 +155,18 @@ if [[ "${INSTALL_ECHO}" == "true" ]]; then
 
   echo "Installing echo HTTPRoute"
   kubectl apply -f "${SCRIPT_DIR}/echo-route.yaml"
+fi
+
+if [[ "${INSTALL_KNATIVE_FUNCTIONS}" == "true" ]]; then
+  echo "Installing Knative functions route"
+  FUNCTION_NAMESPACE="${FUNCTION_NAMESPACE}" \
+    KNATIVE_DOMAIN="${KNATIVE_DOMAIN}" \
+    envsubst '${FUNCTION_NAMESPACE} ${KNATIVE_DOMAIN}' \
+    < "${SCRIPT_DIR}/knative-functions-route.yaml" \
+    | kubectl apply -f -
+
+  kubectl rollout restart deployment/knative-function-router --namespace kong
+  kubectl rollout status deployment/knative-function-router --namespace kong --timeout "${TIMEOUT}"
 fi
 
 echo "Kong Gateway status"
