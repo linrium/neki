@@ -2,10 +2,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-IMAGE="${IMAGE:-dev.local/hello-bun-ts:latest}"
 SERVICE="${SERVICE:-hello-bun-ts}"
 NAMESPACE="${NAMESPACE:-default}"
 TIMEOUT="${TIMEOUT:-180s}"
+IMAGE_REPOSITORY="${IMAGE_REPOSITORY:-dev.local/hello-bun-ts}"
 
 need() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -14,8 +14,19 @@ need() {
   fi
 }
 
+random_tag() {
+  if command -v uuidgen >/dev/null 2>&1; then
+    uuidgen | tr '[:upper:]' '[:lower:]'
+  else
+    printf '%s-%s%s\n' "$(date +%s)" "${RANDOM}" "${RANDOM}"
+  fi
+}
+
+IMAGE="${IMAGE:-${IMAGE_REPOSITORY}:$(random_tag)}"
+
 need docker
 need kubectl
+need envsubst
 
 echo "Building ${IMAGE}"
 if docker buildx version >/dev/null 2>&1; then
