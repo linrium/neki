@@ -10,13 +10,14 @@ behavior but simplifies it into one Knative Service:
 - `POST /orders` starts a Dapr Workflow instance.
 - The workflow runs inventory, payment, and shipping activities.
 - Orders with `total >= 1000` wait for a `manager_approval` external event.
-- Activities publish order notifications through Dapr pub/sub.
+- Activities publish order notifications through Dapr pub/sub backed by Redpanda/Kafka.
 - The same Knative function subscribes to notifications and logs them.
 - The app exports OpenTelemetry logs, metrics, and traces to Alloy.
 
 The example reuses an existing Opstree Redis Operator-managed Redis instance for
-both Dapr Workflow state and Dapr pub/sub. Knative `min-scale` is set to `1`
-because the workflow worker and pub/sub subscriber need a warm pod.
+Dapr Workflow state, and an existing Redpanda Operator-managed Redpanda cluster
+for Dapr pub/sub. Knative `min-scale` is set to `1` because the workflow worker
+and pub/sub subscriber need a warm pod.
 
 ## Prerequisites
 
@@ -25,6 +26,7 @@ because the workflow worker and pub/sub subscriber need a warm pod.
 - Kong Gateway installed with the Knative function route, for example `./infra/kong/install.sh`
 - Redis Operator installed, for example `./infra/redis/install.sh`
 - An existing Redis instance managed by the Redis Operator
+- Redpanda Operator and an existing Redpanda cluster, for example `APPLY_CLUSTER=true ./infra/redpanda/install.sh`
 - Observability stack installed, for example `./infra/observability/install.sh`
 - Docker
 - `kubectl`
@@ -38,9 +40,9 @@ From this directory:
 ./deploy.sh
 ```
 
-The script builds `dev.local/dapr-workflow:<random-tag>`, applies the Dapr state
-store, pub/sub component, Dapr `Configuration`, and deploys the Knative Service.
-It does not create Redis.
+The script builds `dev.local/dapr-workflow:<random-tag>`, applies the Dapr Redis
+state store, Kafka pub/sub component, Dapr `Configuration`, and deploys the
+Knative Service. It does not create Redis or Redpanda.
 
 By default, Dapr connects to an existing same-namespace Redis service named
 `redis`:
@@ -60,6 +62,67 @@ If your Redis requires a password:
 ```bash
 REDIS_HOST=redis.shared-cache.svc.cluster.local:6379 \
 REDIS_PASSWORD='your-password' \
+./deploy.sh
+```
+
+By default, Dapr pub/sub connects to the Redpanda cluster created by
+`infra/redpanda/redpanda-cluster.yaml`:
+
+```text
+redpanda-0.redpanda.redpanda.svc.cluster.local:9093
+```
+
+The operator-generated Redpanda config advertises the broker as
+`redpanda-0.redpanda.redpanda.svc.cluster.local.:9093`, so the example defaults
+to the broker pod DNS name rather than the headless service name.
+
+That Redpanda manifest enables TLS on the Kafka listener, so the default Dapr
+Kafka settings are:
+
+```text
+KAFKA_AUTH_TYPE=certificate
+KAFKA_DISABLE_TLS=false
+KAFKA_SKIP_VERIFY=false
+```
+
+The deploy script copies the existing Redpanda root CA secret into the app
+namespace and references it from the Dapr Kafka component:
+
+```text
+KAFKA_CA_SECRET_NAMESPACE=redpanda
+KAFKA_CA_SECRET_NAME=redpanda-default-root-certificate
+KAFKA_CA_SECRET_KEY=ca.crt
+KAFKA_LOCAL_CA_SECRET_NAME=redpanda-default-root-certificate
+```
+
+Set `SYNC_KAFKA_CA_SECRET=false` if you manage that CA secret yourself in the
+application namespace.
+
+Point the example at a different existing Redpanda/Kafka broker when needed:
+
+```bash
+KAFKA_BROKERS=redpanda.kafka.svc.cluster.local:9093 ./deploy.sh
+```
+
+Find the broker service for your existing Redpanda cluster with:
+
+```bash
+kubectl get redpanda,pods,svc --namespace redpanda
+```
+
+Use the Kafka API service and port in this form:
+
+```text
+<service>.<namespace>.svc.cluster.local:<kafka-port>
+```
+
+If your broker listener does not use TLS:
+
+```bash
+KAFKA_BROKERS=redpanda.kafka.svc.cluster.local:9092 \
+KAFKA_AUTH_TYPE=none \
+KAFKA_DISABLE_TLS=true \
+KAFKA_SKIP_VERIFY=false \
 ./deploy.sh
 ```
 
@@ -121,7 +184,7 @@ The response includes the workflow instance ID:
 Check status:
 
 ```bash
-ORDER_ID=order-riley-6ff2a8ce
+ORDER_ID=order-smoke-riley-75012453
 curl -s "${FUNCTION_URL}/orders/${ORDER_ID}"
 ```
 
@@ -221,7 +284,7 @@ In Grafana:
 - `src/workflow.ts`: Dapr workflow and activities
 - `src/telemetry.ts`: OpenTelemetry logs, metrics, and traces to Alloy
 - `k8s/statestore.yaml`: Dapr Redis state store with `actorStateStore: true`
-- `k8s/pubsub-component.yaml`: Dapr Redis pub/sub component
+- `k8s/pubsub-component.yaml`: Dapr Kafka pub/sub component for Redpanda
 - `service.yaml`: Knative Service with Dapr sidecar annotations
 
 The service sets `dapr.io/metrics-port: "9092"` to avoid Dapr's default metrics

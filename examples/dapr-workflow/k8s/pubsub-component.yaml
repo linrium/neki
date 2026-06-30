@@ -4,12 +4,28 @@ metadata:
   name: pubsub
   namespace: ${NAMESPACE}
 spec:
-  type: pubsub.redis
+  type: pubsub.kafka
   version: v1
   metadata:
-    - name: redisHost
-      value: "${REDIS_HOST}"
-    - name: redisPassword
-      value: "${REDIS_PASSWORD}"
+    - name: brokers
+      value: "${KAFKA_BROKERS}"
+    - name: consumerGroup
+      value: "${KAFKA_CONSUMER_GROUP}"
+    - name: clientID
+      value: "dapr-workflow"
+    - name: authType
+      value: "${KAFKA_AUTH_TYPE}"
+    - name: disableTls
+      value: "${KAFKA_DISABLE_TLS}"
+    - name: skipVerify
+      value: "${KAFKA_SKIP_VERIFY}"
+    - name: caCert
+      secretKeyRef:
+        name: "${KAFKA_LOCAL_CA_SECRET_NAME}"
+        key: "${KAFKA_CA_SECRET_KEY}"
+    - name: version
+      value: "${KAFKA_VERSION}"
+    - name: initialOffset
+      value: "oldest"
 scopes:
   - dapr-workflow
