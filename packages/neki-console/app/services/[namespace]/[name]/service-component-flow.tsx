@@ -32,6 +32,7 @@ type FlowService = {
   revision: string
   daprEnabled: boolean
   daprAppId: string
+  daprConfig: string
   traffic: string
 }
 
@@ -337,6 +338,7 @@ function buildGraph({
           icon: "dapr",
           metrics: [
             { label: "Resources", value: String(daprResources.length) },
+            { label: "Config", value: service.daprConfig },
           ],
         },
       }),

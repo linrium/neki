@@ -48,6 +48,7 @@ export type KnativeService = {
   minScale: string
   daprEnabled: boolean
   daprAppId: string
+  daprConfig: string
   traffic: string
   age: string
 }
@@ -174,6 +175,20 @@ export type PostgresProvisionResult = {
   error: string
 }
 
+export type SecretReadResult = {
+  ok: boolean
+  title: string
+  message: string
+  namespace: string
+  serviceName: string
+  vaultComponent: string
+  secretName: string
+  vaultPath: string
+  loadedAt: string
+  entries: Array<{ key: string; value: string; size: number }>
+  error: string
+}
+
 const EMPTY_VALUE = "n/a"
 const DEFAULT_LOG_LIMIT = 200
 const DEFAULT_LOG_WINDOW_MINUTES = 60
@@ -255,6 +270,9 @@ export async function refreshService(namespace: string, name: string) {
   )
   revalidatePath(
     `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/postgres`,
+  )
+  revalidatePath(
+    `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/secrets`,
   )
 }
 
@@ -394,6 +412,72 @@ export async function createServicePostgres(
       ok: false,
       title: "Postgres provisioning failed",
       message: "No Postgres instance was completed.",
+      ...resultBase,
+      error: getErrorMessage(error),
+    }
+  }
+}
+
+export async function loadServiceSecrets(
+  namespace: string,
+  serviceName: string,
+  _previousState: SecretReadResult,
+  formData: FormData,
+): Promise<SecretReadResult> {
+  const loadedAt = new Date().toISOString()
+  const input = {
+    vaultComponent: getFormString(formData, "vaultComponent") || "vault",
+    secretName: getFormString(formData, "secretName") || serviceName,
+  }
+  const resultBase = {
+    namespace,
+    serviceName,
+    vaultComponent: input.vaultComponent,
+    secretName: input.secretName,
+    vaultPath: "",
+    loadedAt,
+    entries: [],
+  }
+
+  try {
+    validateKubernetesName(namespace, "Namespace")
+    validateKubernetesName(serviceName, "Service name")
+    validateKubernetesName(input.vaultComponent, "Dapr Vault component")
+    validateVaultSecretName(input.secretName)
+
+    const { customObjectsApi, objectApi } = getClusterClient()
+    await getNamespacedKnativeService(customObjectsApi, namespace, serviceName)
+    const vault = await resolveDaprVault({
+      customObjectsApi,
+      objectApi,
+      namespace,
+      componentName: input.vaultComponent,
+    })
+    const secret = await readVaultSecret(vault, input.secretName)
+    const entries = Object.entries(secret.values)
+      .map(([key, value]) => ({
+        key,
+        value,
+        size: new TextEncoder().encode(value).length,
+      }))
+      .sort((left, right) => left.key.localeCompare(right.key))
+
+    return {
+      ok: true,
+      title: secret.exists ? "Secret loaded" : "Secret not found",
+      message: secret.exists
+        ? `Loaded ${entries.length} value${entries.length === 1 ? "" : "s"} from Vault KV.`
+        : "Vault returned 404 for this secret path.",
+      ...resultBase,
+      vaultPath: buildVaultKvPath(vault, input.secretName),
+      entries,
+      error: "",
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      title: "Secret load failed",
+      message: "The secret values could not be loaded.",
       ...resultBase,
       error: getErrorMessage(error),
     }
@@ -710,6 +794,7 @@ function toKnativeService(item: KubernetesCustomObject): KnativeService {
     minScale: templateAnnotations["autoscaling.knative.dev/min-scale"] ?? "0",
     daprEnabled: templateAnnotations["dapr.io/enabled"] === "true",
     daprAppId: templateAnnotations["dapr.io/app-id"] ?? EMPTY_VALUE,
+    daprConfig: templateAnnotations["dapr.io/config"] ?? EMPTY_VALUE,
     traffic: formatTraffic(status?.traffic),
     age: item.metadata?.creationTimestamp ?? "",
   }
@@ -991,6 +1076,13 @@ function getRelatedDaprResources(
       return false
     }
 
+    if (resource.kind === "Configuration") {
+      return (
+        service.daprConfig !== EMPTY_VALUE &&
+        resource.name === service.daprConfig
+      )
+    }
+
     return (
       resource.scopes.length === 0 ||
       resource.scopes.some((scope) => scopeKeys.has(scope))
@@ -1130,7 +1222,7 @@ async function writeVaultKvSecret(
     normalizeBaseUrl(vault.address),
   )
   const existing = await readVaultKvSecret(url, vault.token)
-  const response = await fetch(url, {
+  const response = await fetchVault(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -1153,7 +1245,7 @@ async function writeVaultKvSecret(
 }
 
 async function readVaultKvSecret(url: URL, token: string) {
-  const response = await fetch(url, {
+  const response = await fetchVault(url, {
     headers: {
       "X-Vault-Token": token,
     },
@@ -1172,6 +1264,74 @@ async function readVaultKvSecret(url: URL, token: string) {
 
   const payload = getRecord(await response.json())
   return getStringRecord(getRecord(payload?.data)?.data)
+}
+
+async function readVaultSecret(
+  vault: DaprVaultConnection,
+  secretName: string,
+): Promise<{ exists: boolean; values: Record<string, string> }> {
+  const url = new URL(
+    `/v1/${buildVaultKvPath(vault, secretName)}`,
+    normalizeBaseUrl(vault.address),
+  )
+  const response = await fetchVault(url, {
+    headers: {
+      "X-Vault-Token": vault.token,
+    },
+    cache: "no-store",
+  })
+
+  if (response.status === 404) {
+    return { exists: false, values: {} }
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `Vault read failed for ${url.pathname}: ${response.status} ${response.statusText}`,
+    )
+  }
+
+  const payload = getRecord(await response.json())
+  return {
+    exists: true,
+    values: getStringRecord(getRecord(payload?.data)?.data),
+  }
+}
+
+async function fetchVault(url: URL, init: RequestInit) {
+  try {
+    return await fetch(url, init)
+  } catch (error) {
+    const localUrl = toLocalVaultUrl(url)
+    if (!localUrl) {
+      throw new Error(
+        `Vault is not reachable at ${url.origin}. If you are running neki-console locally, port-forward Vault and set VAULT_ADDR=http://127.0.0.1:8200. ${getErrorMessage(error)}`,
+      )
+    }
+
+    try {
+      return await fetch(localUrl, init)
+    } catch (localError) {
+      throw new Error(
+        `Vault is not reachable at ${url.origin} or ${localUrl.origin}. Start the Vault port-forward with ./scripts/vault-port-forward.sh, then retry. ${getErrorMessage(localError)}`,
+      )
+    }
+  }
+}
+
+function toLocalVaultUrl(url: URL) {
+  const isClusterService =
+    url.hostname.endsWith(".svc") ||
+    url.hostname.includes(".svc.") ||
+    url.hostname.endsWith(".svc.cluster.local")
+
+  if (!isClusterService) {
+    return undefined
+  }
+
+  const localUrl = new URL(url.toString())
+  localUrl.hostname = "127.0.0.1"
+  return localUrl
 }
 
 function buildVaultKvPath(vault: DaprVaultConnection, secretName: string) {
@@ -1740,7 +1900,27 @@ function getErrorMessage(error: unknown) {
 function getErrorStatus(error: unknown) {
   const record = getRecord(error)
   const response = getRecord(record?.response)
-  const status = record?.statusCode ?? record?.status ?? response?.statusCode
+  const status =
+    record?.statusCode ??
+    record?.status ??
+    record?.code ??
+    response?.statusCode ??
+    response?.status
 
-  return typeof status === "number" ? status : undefined
+  if (typeof status === "number") {
+    return status
+  }
+
+  const message = getErrorMessage(error)
+  const httpCodeMatch = /HTTP-Code:\s*(\d{3})/.exec(message)
+  if (httpCodeMatch?.[1]) {
+    return Number(httpCodeMatch[1])
+  }
+
+  const bodyCodeMatch = /"code"\s*:\s*(\d{3})/.exec(message)
+  if (bodyCodeMatch?.[1]) {
+    return Number(bodyCodeMatch[1])
+  }
+
+  return undefined
 }

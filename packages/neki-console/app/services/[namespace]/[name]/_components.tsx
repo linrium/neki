@@ -5,6 +5,7 @@ import {
   IconDatabase,
   IconExternalLink,
   IconGitBranch,
+  IconKey,
   IconPlayerPlay,
   IconRefresh,
   IconServer,
@@ -17,7 +18,12 @@ import { refreshService, type ServiceDetail } from "@/app/actions"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
-export type ServiceTab = "overview" | "logs" | "playground" | "postgres"
+export type ServiceTab =
+  | "overview"
+  | "logs"
+  | "playground"
+  | "postgres"
+  | "secrets"
 
 export function ServicePageFrame({
   activeTab,
@@ -190,6 +196,12 @@ function ServiceTabs({
       label: "Postgres",
       href: `${baseHref}/postgres`,
       icon: IconDatabase,
+    },
+    {
+      value: "secrets",
+      label: "Secrets",
+      href: `${baseHref}/secrets`,
+      icon: IconKey,
     },
   ]
 

@@ -109,6 +109,10 @@ postgresUsername
 postgresPassword
 ```
 
+The `/` response lists the Dapr Vault secret keys, marks which keys are required
+for Postgres, and reports the connection check result without exposing the
+password.
+
 If the revision reports `ErrImageNeverPull`, Kubernetes cannot see an image with
 the exact name from the manifest. Re-run `./deploy.sh`; it builds with
 `docker buildx build --load` when available and verifies the image exists locally:

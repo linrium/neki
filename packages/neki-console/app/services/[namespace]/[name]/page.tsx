@@ -137,6 +137,7 @@ export default async function ServicePage({ params }: ServicePageProps) {
                 value={service.daprEnabled ? "Enabled" : "Disabled"}
               />
               <Fact label="App ID" value={service.daprAppId} />
+              <Fact label="Config" value={service.daprConfig} />
             </div>
             <DaprResourceList resources={detail.relatedDaprResources} />
           </Panel>
