@@ -35,7 +35,7 @@
     },
     {
       "id": "schedule-workflow",
-      "position": { "x": 700, "y": 170 },
+      "position": { "x": 700, "y": 150 },
       "data": {
         "eyebrow": "Dapr client",
         "title": "Schedule workflow",
@@ -224,7 +224,9 @@
       "id": "check-to-wait",
       "source": "approval-check",
       "target": "approval-wait",
-      "label": "yes"
+      "label": "yes",
+      "sourceHandle": "right-top",
+      "targetHandle": "left-bottom"
     },
     {
       "id": "wait-to-outcome",
@@ -243,14 +245,18 @@
       "id": "check-to-payment",
       "source": "approval-check",
       "target": "process-payment",
-      "label": "no"
+      "label": "no",
+      "sourceHandle": "right-bottom",
+      "targetHandle": "left-top"
     },
     {
       "id": "approved-to-payment",
       "source": "approval-outcome",
       "target": "process-payment",
       "label": "approved",
-      "animated": true
+      "animated": true,
+      "sourceHandle": "bottom",
+      "targetHandle": "top"
     },
     {
       "id": "payment-to-ship",
@@ -270,6 +276,8 @@
       "source": "notify-received",
       "target": "notifications-topic",
       "label": "publish",
+      "sourceHandle": "bottom",
+      "targetHandle": "top-left",
       "tone": "violet"
     },
     {
@@ -277,6 +285,8 @@
       "source": "reserve-inventory",
       "target": "notifications-topic",
       "label": "publish",
+      "sourceHandle": "bottom",
+      "targetHandle": "top",
       "tone": "violet"
     },
     {
@@ -284,6 +294,8 @@
       "source": "process-payment",
       "target": "notifications-topic",
       "label": "publish",
+      "sourceHandle": "bottom",
+      "targetHandle": "top",
       "tone": "violet"
     },
     {
@@ -291,6 +303,8 @@
       "source": "ship-order",
       "target": "notifications-topic",
       "label": "publish",
+      "sourceHandle": "bottom",
+      "targetHandle": "top-right",
       "tone": "violet"
     },
     {

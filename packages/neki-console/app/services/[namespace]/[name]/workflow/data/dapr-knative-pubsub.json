@@ -32,7 +32,7 @@
     },
     {
       "id": "dapr-publish",
-      "position": { "x": 700, "y": 210 },
+      "position": { "x": 700, "y": 190 },
       "data": {
         "eyebrow": "Dapr HTTP API",
         "title": "Publish to topic",
@@ -178,6 +178,8 @@
       "source": "dapr-publish",
       "target": "publish-error",
       "label": "!ok",
+      "sourceHandle": "right-top",
+      "targetHandle": "left-bottom",
       "tone": "amber"
     },
     {
@@ -199,6 +201,8 @@
       "source": "inventory-topic",
       "target": "route-widget",
       "label": "type=widget",
+      "sourceHandle": "right-top",
+      "targetHandle": "left-bottom",
       "tone": "violet"
     },
     {
@@ -206,6 +210,8 @@
       "source": "inventory-topic",
       "target": "route-gadget",
       "label": "type=gadget",
+      "sourceHandle": "right",
+      "targetHandle": "left",
       "tone": "violet"
     },
     {
@@ -213,6 +219,8 @@
       "source": "inventory-topic",
       "target": "route-product",
       "label": "default",
+      "sourceHandle": "right-bottom",
+      "targetHandle": "left-top",
       "tone": "violet"
     },
     {

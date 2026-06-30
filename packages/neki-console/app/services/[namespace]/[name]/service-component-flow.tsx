@@ -14,7 +14,6 @@ import {
   type Edge,
   Handle,
   MarkerType,
-  MiniMap,
   type Node,
   type NodeProps,
   type NodeTypes,
@@ -156,13 +155,6 @@ export function ServiceComponentFlow({
             proOptions={{ hideAttribution: true }}
           >
             <Background color="#d4d4d8" gap={24} size={1} />
-            <MiniMap
-              className="hidden overflow-hidden rounded-md border border-zinc-200 bg-white shadow-sm md:block"
-              maskColor="rgba(244, 244, 245, 0.65)"
-              nodeColor={(node) => getMiniMapColor(node as ComponentNode)}
-              pannable
-              zoomable
-            />
             <Controls
               className="overflow-hidden rounded-md border border-zinc-200 bg-white shadow-sm"
               showInteractive={false}
@@ -678,21 +670,4 @@ function getToneClassName(tone: ComponentNodeData["tone"]) {
   }
 
   return "border-zinc-200 bg-zinc-50 text-zinc-600"
-}
-
-function getMiniMapColor(node: ComponentNode) {
-  if (node.data.tone === "emerald") {
-    return "#10b981"
-  }
-  if (node.data.tone === "amber") {
-    return "#f59e0b"
-  }
-  if (node.data.tone === "violet") {
-    return "#8b5cf6"
-  }
-  if (node.data.tone === "blue") {
-    return "#2563eb"
-  }
-
-  return "#71717a"
 }

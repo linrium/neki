@@ -15,7 +15,6 @@ import {
   type Edge,
   Handle,
   MarkerType,
-  MiniMap,
   type Node,
   type NodeProps,
   type NodeTypes,
@@ -66,11 +65,24 @@ export type WorkflowDefinition = {
     target: string
     label?: string
     animated?: boolean
+    sourceHandle?: WorkflowHandleId
+    targetHandle?: WorkflowHandleId
     tone?: WorkflowTone
   }>
 }
 
 type WorkflowNode = Node<WorkflowNodeData, "workflow">
+type WorkflowHandleId =
+  | "bottom"
+  | "left"
+  | "left-bottom"
+  | "left-top"
+  | "right"
+  | "right-bottom"
+  | "right-top"
+  | "top"
+  | "top-left"
+  | "top-right"
 
 const nodeTypes = {
   workflow: WorkflowNodeCard,
@@ -99,13 +111,6 @@ export function WorkflowFlow({ workflow }: { workflow: WorkflowDefinition }) {
             proOptions={{ hideAttribution: true }}
           >
             <Background color="#d4d4d8" gap={24} size={1} />
-            <MiniMap
-              className="hidden overflow-hidden rounded-md border border-zinc-200 bg-white shadow-sm md:block"
-              maskColor="rgba(244, 244, 245, 0.68)"
-              nodeColor={(node) => getMiniMapColor(node as WorkflowNode)}
-              pannable
-              zoomable
-            />
             <Controls
               className="overflow-hidden rounded-md border border-zinc-200 bg-white shadow-sm"
               showInteractive={false}
@@ -141,6 +146,8 @@ function createEdge(edge: WorkflowDefinition["edges"][number]): Edge {
     id: edge.id,
     source: edge.source,
     target: edge.target,
+    sourceHandle: edge.sourceHandle ?? "right",
+    targetHandle: edge.targetHandle ?? "left",
     type: "smoothstep",
     animated: edge.animated,
     label: edge.label,
@@ -167,16 +174,7 @@ function WorkflowNodeCard({ data }: NodeProps<WorkflowNode>) {
 
   return (
     <article className="w-72 rounded-xl border border-zinc-200 bg-white p-3 text-left shadow-sm">
-      <Handle
-        className="!size-2 !border-2 !border-white !bg-zinc-400"
-        position={Position.Left}
-        type="target"
-      />
-      <Handle
-        className="!size-2 !border-2 !border-white !bg-zinc-400"
-        position={Position.Right}
-        type="source"
-      />
+      <NodeHandles />
       <div className="flex items-start gap-3">
         <span
           className={cn(
@@ -220,6 +218,82 @@ function WorkflowNodeCard({ data }: NodeProps<WorkflowNode>) {
         </dl>
       ) : null}
     </article>
+  )
+}
+
+function NodeHandles() {
+  const handleClassName =
+    "!size-2 !border-2 !border-white !bg-zinc-400 !opacity-0"
+
+  return (
+    <>
+      <Handle
+        className={handleClassName}
+        id="left"
+        position={Position.Left}
+        type="target"
+      />
+      <Handle
+        className={handleClassName}
+        id="left-top"
+        position={Position.Left}
+        style={{ top: 44 }}
+        type="target"
+      />
+      <Handle
+        className={handleClassName}
+        id="left-bottom"
+        position={Position.Left}
+        style={{ top: "calc(100% - 44px)" }}
+        type="target"
+      />
+      <Handle
+        className={handleClassName}
+        id="right"
+        position={Position.Right}
+        type="source"
+      />
+      <Handle
+        className={handleClassName}
+        id="right-top"
+        position={Position.Right}
+        style={{ top: 44 }}
+        type="source"
+      />
+      <Handle
+        className={handleClassName}
+        id="right-bottom"
+        position={Position.Right}
+        style={{ top: "calc(100% - 44px)" }}
+        type="source"
+      />
+      <Handle
+        className={handleClassName}
+        id="top"
+        position={Position.Top}
+        type="target"
+      />
+      <Handle
+        className={handleClassName}
+        id="top-left"
+        position={Position.Top}
+        style={{ left: "32%" }}
+        type="target"
+      />
+      <Handle
+        className={handleClassName}
+        id="top-right"
+        position={Position.Top}
+        style={{ left: "68%" }}
+        type="target"
+      />
+      <Handle
+        className={handleClassName}
+        id="bottom"
+        position={Position.Bottom}
+        type="source"
+      />
+    </>
   )
 }
 
@@ -299,23 +373,6 @@ function getEdgeColor(tone: WorkflowTone = "zinc") {
   }
   if (tone === "emerald") {
     return "#10b981"
-  }
-
-  return "#71717a"
-}
-
-function getMiniMapColor(node: WorkflowNode) {
-  if (node.data.tone === "emerald") {
-    return "#10b981"
-  }
-  if (node.data.tone === "amber") {
-    return "#f59e0b"
-  }
-  if (node.data.tone === "violet") {
-    return "#8b5cf6"
-  }
-  if (node.data.tone === "blue") {
-    return "#2563eb"
   }
 
   return "#71717a"
