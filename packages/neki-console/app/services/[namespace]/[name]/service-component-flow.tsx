@@ -86,6 +86,8 @@ type ComponentNodeData = {
 
 type ComponentNode = Node<ComponentNodeData, "component">
 
+const PRIMARY_ROW_Y = 150
+
 const nodeTypes = {
   component: ComponentNodeCard,
 } satisfies NodeTypes
@@ -158,8 +160,8 @@ function buildGraph({
   const visibleDaprResources = daprResources.slice(0, 4)
   const revisionStartY =
     routedRevisions.length > 0
-      ? Math.max(35, 210 - (routedRevisions.length - 1) * 85)
-      : 170
+      ? Math.max(35, PRIMARY_ROW_Y - (routedRevisions.length - 1) * 85)
+      : PRIMARY_ROW_Y
   const routedRevisionBottomY =
     routedRevisions.length > 0
       ? revisionStartY + (routedRevisions.length - 1) * 170 + 180
@@ -189,7 +191,7 @@ function buildGraph({
     }),
     createNode({
       id: "service",
-      position: { x: 390, y: 150 },
+      position: { x: 390, y: PRIMARY_ROW_Y },
       data: {
         eyebrow: service.namespace,
         title: service.name,
@@ -244,7 +246,7 @@ function buildGraph({
     nodes.push(
       createNode({
         id: "no-routed-revisions",
-        position: { x: 790, y: 170 },
+        position: { x: 790, y: PRIMARY_ROW_Y },
         data: {
           eyebrow: "Revisions",
           title: "No routed revisions",
@@ -266,7 +268,7 @@ function buildGraph({
     nodes.push(
       createNode({
         id: containerId,
-        position: { x: 1210, y: 135 + index * 150 },
+        position: { x: 1210, y: PRIMARY_ROW_Y + index * 150 },
         data: {
           eyebrow: "Container",
           title: container.name,
@@ -300,7 +302,10 @@ function buildGraph({
     nodes.push(
       createNode({
         id: "container-overflow",
-        position: { x: 1210, y: 135 + visibleContainers.length * 150 },
+        position: {
+          x: 1210,
+          y: PRIMARY_ROW_Y + visibleContainers.length * 150,
+        },
         data: {
           eyebrow: "Container",
           title: `+${containers.length - visibleContainers.length} more`,
