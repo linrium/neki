@@ -21,6 +21,8 @@ type KubernetesCustomObject = {
     labels?: Record<string, string>
     name?: string
     namespace?: string
+    resourceVersion?: string
+    uid?: string
   }
   spec?: Record<string, unknown>
   status?: Record<string, unknown>
@@ -39,6 +41,47 @@ export type KnativeService = {
   daprAppId: string
   traffic: string
   age: string
+}
+
+export type ServiceCondition = {
+  type: string
+  status: string
+  reason: string
+  message: string
+  lastTransitionTime: string
+}
+
+export type ServiceTrafficTarget = {
+  label: string
+  percent: string
+  revision: string
+  url: string
+}
+
+export type ServiceContainer = {
+  name: string
+  image: string
+  ports: string[]
+  env: string[]
+}
+
+export type ServiceDetail = {
+  clusterName: string
+  currentContext: string
+  lastSyncedAt: string
+  service: KnativeService | null
+  uid: string
+  resourceVersion: string
+  generation: string
+  observedGeneration: string
+  labels: Array<{ key: string; value: string }>
+  annotations: Array<{ key: string; value: string }>
+  conditions: ServiceCondition[]
+  trafficTargets: ServiceTrafficTarget[]
+  containers: ServiceContainer[]
+  relatedDaprResources: DaprResource[]
+  rawJson: string
+  errors: string[]
 }
 
 export type DaprResource = {
@@ -66,29 +109,143 @@ export async function refreshDashboard() {
   revalidatePath("/")
 }
 
+export async function refreshService(namespace: string, name: string) {
+  revalidatePath(
+    `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`,
+  )
+}
+
 export async function getClusterOverview(): Promise<ClusterOverview> {
   const lastSyncedAt = new Date().toISOString()
 
   try {
-    const kubeConfig = new KubeConfig()
-    kubeConfig.loadFromDefault()
+    const { customObjectsApi, currentCluster, currentContext } =
+      getClusterClient()
 
-    const customObjectsApi = kubeConfig.makeApiClient(CustomObjectsApi)
-    const currentCluster = kubeConfig.getCurrentCluster()
-    const currentContext = kubeConfig.getCurrentContext() || EMPTY_VALUE
-
-    const [
-      knativeResult,
-      componentsResult,
-      configurationsResult,
-      subscriptionsResult,
-    ] = await Promise.all([
+    const [knativeResult, daprResult] = await Promise.all([
       listCustomObjects(customObjectsApi, {
         group: "serving.knative.dev",
         version: "v1",
         plural: "services",
         label: "Knative services",
       }),
+      listDaprResources(customObjectsApi),
+    ])
+
+    return {
+      clusterName: getClusterName(currentCluster),
+      currentContext,
+      lastSyncedAt,
+      services: knativeResult.items.map(toKnativeService),
+      daprResources: daprResult.resources,
+      errors: [...knativeResult.errors, ...daprResult.errors],
+    }
+  } catch (error) {
+    return {
+      clusterName: EMPTY_VALUE,
+      currentContext: EMPTY_VALUE,
+      lastSyncedAt,
+      services: [],
+      daprResources: [],
+      errors: [`Kubernetes connection failed: ${getErrorMessage(error)}`],
+    }
+  }
+}
+
+export async function getServiceDetail(
+  namespace: string,
+  name: string,
+): Promise<ServiceDetail> {
+  const lastSyncedAt = new Date().toISOString()
+
+  try {
+    const { customObjectsApi, currentCluster, currentContext } =
+      getClusterClient()
+    const [serviceItem, daprResult] = await Promise.all([
+      getNamespacedKnativeService(customObjectsApi, namespace, name),
+      listDaprResources(customObjectsApi),
+    ])
+    const service = toKnativeService(serviceItem)
+
+    return {
+      clusterName: getClusterName(currentCluster),
+      currentContext,
+      lastSyncedAt,
+      service,
+      uid: serviceItem.metadata?.uid ?? EMPTY_VALUE,
+      resourceVersion: serviceItem.metadata?.resourceVersion ?? EMPTY_VALUE,
+      generation: formatValue(serviceItem.metadata?.generation),
+      observedGeneration: formatValue(
+        getRecord(serviceItem.status)?.observedGeneration,
+      ),
+      labels: toKeyValues(serviceItem.metadata?.labels),
+      annotations: toKeyValues(serviceItem.metadata?.annotations),
+      conditions: toServiceConditions(
+        getRecord(serviceItem.status)?.conditions,
+      ),
+      trafficTargets: toTrafficTargets(getRecord(serviceItem.status)?.traffic),
+      containers: toServiceContainers(
+        getRecord(getRecord(serviceItem.spec?.template)?.spec)?.containers,
+      ),
+      relatedDaprResources: getRelatedDaprResources(
+        daprResult.resources,
+        service,
+      ),
+      rawJson: JSON.stringify(serviceItem, null, 2),
+      errors: daprResult.errors,
+    }
+  } catch (error) {
+    return {
+      clusterName: EMPTY_VALUE,
+      currentContext: EMPTY_VALUE,
+      lastSyncedAt,
+      service: null,
+      uid: EMPTY_VALUE,
+      resourceVersion: EMPTY_VALUE,
+      generation: EMPTY_VALUE,
+      observedGeneration: EMPTY_VALUE,
+      labels: [],
+      annotations: [],
+      conditions: [],
+      trafficTargets: [],
+      containers: [],
+      relatedDaprResources: [],
+      rawJson: "",
+      errors: [`Knative service read failed: ${getErrorMessage(error)}`],
+    }
+  }
+}
+
+function getClusterClient() {
+  const kubeConfig = new KubeConfig()
+  kubeConfig.loadFromDefault()
+
+  return {
+    customObjectsApi: kubeConfig.makeApiClient(CustomObjectsApi),
+    currentCluster: kubeConfig.getCurrentCluster(),
+    currentContext: kubeConfig.getCurrentContext() || EMPTY_VALUE,
+  }
+}
+
+async function getNamespacedKnativeService(
+  customObjectsApi: CustomObjectsApi,
+  namespace: string,
+  name: string,
+) {
+  return (await customObjectsApi.getNamespacedCustomObject({
+    group: "serving.knative.dev",
+    version: "v1",
+    namespace,
+    plural: "services",
+    name,
+  })) as KubernetesCustomObject
+}
+
+async function listDaprResources(
+  customObjectsApi: CustomObjectsApi,
+): Promise<{ resources: DaprResource[]; errors: string[] }> {
+  const [componentsResult, configurationsResult, subscriptionsResult] =
+    await Promise.all([
       listCustomObjects(customObjectsApi, {
         group: "dapr.io",
         version: "v1alpha1",
@@ -109,38 +266,23 @@ export async function getClusterOverview(): Promise<ClusterOverview> {
       }),
     ])
 
-    return {
-      clusterName: getClusterName(currentCluster),
-      currentContext,
-      lastSyncedAt,
-      services: knativeResult.items.map(toKnativeService),
-      daprResources: [
-        ...componentsResult.items.map((item) =>
-          toDaprResource(item, "Component"),
-        ),
-        ...configurationsResult.items.map((item) =>
-          toDaprResource(item, "Configuration"),
-        ),
-        ...subscriptionsResult.items.map((item) =>
-          toDaprResource(item, "Subscription"),
-        ),
-      ],
-      errors: [
-        ...knativeResult.errors,
-        ...componentsResult.errors,
-        ...configurationsResult.errors,
-        ...subscriptionsResult.errors,
-      ],
-    }
-  } catch (error) {
-    return {
-      clusterName: EMPTY_VALUE,
-      currentContext: EMPTY_VALUE,
-      lastSyncedAt,
-      services: [],
-      daprResources: [],
-      errors: [`Kubernetes connection failed: ${getErrorMessage(error)}`],
-    }
+  return {
+    resources: [
+      ...componentsResult.items.map((item) =>
+        toDaprResource(item, "Component"),
+      ),
+      ...configurationsResult.items.map((item) =>
+        toDaprResource(item, "Configuration"),
+      ),
+      ...subscriptionsResult.items.map((item) =>
+        toDaprResource(item, "Subscription"),
+      ),
+    ],
+    errors: [
+      ...componentsResult.errors,
+      ...configurationsResult.errors,
+      ...subscriptionsResult.errors,
+    ],
   }
 }
 
@@ -193,6 +335,91 @@ function toKnativeService(item: KubernetesCustomObject): KnativeService {
     traffic: formatTraffic(status?.traffic),
     age: item.metadata?.creationTimestamp ?? "",
   }
+}
+
+function toServiceConditions(conditions: unknown): ServiceCondition[] {
+  if (!Array.isArray(conditions)) {
+    return []
+  }
+
+  return conditions.map((condition) => {
+    const record = getRecord(condition)
+
+    return {
+      type: getString(record?.type) || EMPTY_VALUE,
+      status: getString(record?.status) || EMPTY_VALUE,
+      reason: getString(record?.reason) || EMPTY_VALUE,
+      message: getString(record?.message) || EMPTY_VALUE,
+      lastTransitionTime: getString(record?.lastTransitionTime) || "",
+    }
+  })
+}
+
+function toTrafficTargets(traffic: unknown): ServiceTrafficTarget[] {
+  if (!Array.isArray(traffic)) {
+    return []
+  }
+
+  return traffic.map((target) => {
+    const record = getRecord(target)
+    const tag = getString(record?.tag)
+    const latest = record?.latestRevision === true
+
+    return {
+      label: tag || (latest ? "latest" : "pinned"),
+      percent: formatValue(record?.percent),
+      revision:
+        getString(record?.revisionName) ||
+        (latest ? "Latest revision" : EMPTY_VALUE),
+      url: getString(record?.url) || EMPTY_VALUE,
+    }
+  })
+}
+
+function toServiceContainers(containers: unknown): ServiceContainer[] {
+  if (!Array.isArray(containers)) {
+    return []
+  }
+
+  return containers.map((container) => {
+    const record = getRecord(container)
+
+    return {
+      name: getString(record?.name) || EMPTY_VALUE,
+      image: getString(record?.image) || EMPTY_VALUE,
+      ports: toContainerPorts(record?.ports),
+      env: toContainerEnv(record?.env),
+    }
+  })
+}
+
+function toContainerPorts(ports: unknown): string[] {
+  if (!Array.isArray(ports)) {
+    return []
+  }
+
+  return ports
+    .map((port) => {
+      const record = getRecord(port)
+      const containerPort = formatValue(record?.containerPort)
+      const protocol = getString(record?.protocol)
+
+      return [containerPort, protocol].filter(Boolean).join("/")
+    })
+    .filter(Boolean)
+}
+
+function toContainerEnv(env: unknown): string[] {
+  if (!Array.isArray(env)) {
+    return []
+  }
+
+  return env
+    .map((entry) => {
+      const record = getRecord(entry)
+      return getString(record?.name)
+    })
+    .filter((name): name is string => Boolean(name))
 }
 
 function toDaprResource(
@@ -250,6 +477,28 @@ function getDaprTarget(
   )
 }
 
+function getRelatedDaprResources(
+  resources: DaprResource[],
+  service: KnativeService,
+) {
+  const scopeKeys = new Set(
+    [service.name, service.daprAppId].filter(
+      (value) => value && value !== EMPTY_VALUE,
+    ),
+  )
+
+  return resources.filter((resource) => {
+    if (resource.namespace !== service.namespace) {
+      return false
+    }
+
+    return (
+      resource.scopes.length === 0 ||
+      resource.scopes.some((scope) => scopeKeys.has(scope))
+    )
+  })
+}
+
 function formatTraffic(traffic: unknown) {
   if (!Array.isArray(traffic) || traffic.length === 0) {
     return EMPTY_VALUE
@@ -305,6 +554,26 @@ function getStringArray(value: unknown) {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
     : []
+}
+
+function toKeyValues(value: unknown) {
+  const record = getStringRecord(value)
+
+  return Object.entries(record)
+    .map(([key, recordValue]) => ({ key, value: recordValue }))
+    .sort((left, right) => left.key.localeCompare(right.key))
+}
+
+function formatValue(value: unknown) {
+  if (typeof value === "string") {
+    return value || EMPTY_VALUE
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value)
+  }
+
+  return EMPTY_VALUE
 }
 
 function getStringRecord(value: unknown) {

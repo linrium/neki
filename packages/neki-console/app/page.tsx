@@ -8,6 +8,7 @@ import {
   IconRefresh,
   IconRoute,
 } from "@tabler/icons-react"
+import Link from "next/link"
 import type { ComponentType, ReactNode } from "react"
 import { getClusterOverview, refreshDashboard } from "@/app/actions"
 import { Button } from "@/components/ui/button"
@@ -140,7 +141,12 @@ export default async function Home() {
                           <TableCell>
                             <div className="space-y-1">
                               <p className="font-medium text-zinc-950">
-                                {service.name}
+                                <Link
+                                  href={`/services/${encodeURIComponent(service.namespace)}/${encodeURIComponent(service.name)}`}
+                                  className="text-blue-700 underline-offset-4 hover:underline"
+                                >
+                                  {service.name}
+                                </Link>
                               </p>
                               <p className="text-zinc-500 text-xs">
                                 {service.namespace} / {service.revision}
