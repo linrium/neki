@@ -153,6 +153,12 @@ In Grafana:
 - Prometheus: query `http_server_request_count_total{service_name="dapr-knative-pubsub"}`
 - Tempo: search for service `dapr-knative-pubsub`
 
+Or fetch all three signals plus CPU and memory from the command line:
+
+```bash
+./observability.sh
+```
+
 ## Files
 
 - `src/server.ts`: Bun HTTP service and publish endpoint

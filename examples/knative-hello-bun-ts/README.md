@@ -97,3 +97,9 @@ In Grafana:
 - Loki: query `{knative_service="hello-bun-ts"}`
 - Prometheus: query `http_server_request_count_total{service_name="hello-bun-ts"}`
 - Tempo: search for service `hello-bun-ts`
+
+Or fetch all three signals plus CPU and memory from the command line:
+
+```bash
+./observability.sh
+```
