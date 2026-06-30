@@ -1,32 +1,24 @@
 import {
-  IconAlertTriangle,
-  IconArrowLeft,
   IconBolt,
   IconBox,
   IconBraces,
   IconClock,
-  IconCloud,
   IconCode,
-  IconExternalLink,
   IconGitBranch,
   IconInfoCircle,
-  IconRefresh,
   IconRoute,
-  IconServer,
   IconTag,
 } from "@tabler/icons-react"
-import Link from "next/link"
 import type { ComponentType, ReactNode } from "react"
 import {
   type DaprResource,
   getServiceDetail,
-  refreshService,
   type ServiceCondition,
   type ServiceContainer,
   type ServiceTrafficTarget,
 } from "@/app/actions"
-import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { formatAge, ServicePageFrame, StatusBadge } from "./_components"
 
 export const dynamic = "force-dynamic"
 
@@ -41,233 +33,122 @@ export default async function ServicePage({ params }: ServicePageProps) {
   const { namespace, name } = await params
   const detail = await getServiceDetail(namespace, name)
   const service = detail.service
-  const refreshServiceAction = refreshService.bind(null, namespace, name)
 
   if (!service) {
     return (
-      <main className="min-h-screen bg-zinc-50 text-zinc-950">
-        <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-5 sm:px-6 lg:px-8">
-          <Link
-            href="/"
-            className="inline-flex w-fit items-center gap-2 font-medium text-sm text-zinc-600 hover:text-zinc-950"
-          >
-            <IconArrowLeft className="size-4" />
-            Back to dashboard
-          </Link>
-          <section className="rounded-md border border-amber-200 bg-amber-50 p-6 text-amber-950">
-            <IconAlertTriangle className="size-6" />
-            <h1 className="mt-4 font-semibold text-2xl">
-              Service details unavailable
-            </h1>
-            <p className="mt-2 text-amber-900 text-sm">
-              {detail.errors[0] ??
-                "The requested Knative service could not be read."}
-            </p>
-          </section>
-        </div>
-      </main>
+      <ServicePageFrame
+        activeTab="overview"
+        detail={detail}
+        name={name}
+        namespace={namespace}
+      >
+        <span />
+      </ServicePageFrame>
     )
   }
 
   return (
-    <main className="min-h-screen bg-zinc-50 text-zinc-950">
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-5 sm:px-6 lg:px-8">
-        <header className="space-y-5 border-zinc-200 border-b pb-5">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="space-y-3">
-              <Link
-                href="/"
-                className="inline-flex items-center gap-2 font-medium text-sm text-zinc-600 hover:text-zinc-950"
-              >
-                <IconArrowLeft className="size-4" />
-                Back to dashboard
-              </Link>
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="font-semibold text-3xl tracking-normal">
-                    {service.name}
-                  </h1>
-                  <StatusBadge
-                    active={service.ready}
-                    label={service.ready ? "Ready" : service.reason}
-                  />
-                </div>
-                <p className="mt-2 max-w-3xl text-sm text-zinc-600">
-                  Knative service detail for{" "}
-                  <span className="font-medium text-zinc-800">
-                    {service.namespace}
-                  </span>{" "}
-                  with serving status, traffic, revision template, and Dapr
-                  integration context.
-                </p>
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <p className="text-zinc-500 text-xs lg:text-right">
-                Last synced{" "}
-                <span className="font-medium text-zinc-700">
-                  {formatTimestamp(detail.lastSyncedAt)}
-                </span>
-              </p>
-              {service.url !== "n/a" ? (
-                <a
-                  href={service.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex h-8 items-center gap-1 rounded-md border border-zinc-200 bg-white px-2.5 font-medium text-xs hover:bg-zinc-50"
-                >
-                  <IconExternalLink className="size-4" />
-                  Open URL
-                </a>
-              ) : null}
-              <form action={refreshServiceAction}>
-                <Button type="submit" variant="outline" size="lg">
-                  <IconRefresh data-icon="inline-start" />
-                  Refresh
-                </Button>
-              </form>
-            </div>
-          </div>
+    <ServicePageFrame
+      activeTab="overview"
+      detail={detail}
+      name={name}
+      namespace={namespace}
+    >
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <MetricTile icon={IconRoute} label="Traffic" value={service.traffic} />
+        <MetricTile
+          icon={IconBolt}
+          label="Dapr app"
+          value={service.daprEnabled ? service.daprAppId : "Disabled"}
+        />
+        <MetricTile
+          icon={IconGitBranch}
+          label="Min scale"
+          value={service.minScale}
+        />
+        <MetricTile
+          icon={IconClock}
+          label="Age"
+          value={formatAge(service.age)}
+        />
+      </section>
 
-          <div className="flex flex-wrap items-center gap-2 text-zinc-500 text-xs">
-            <HeaderPill icon={IconCloud} value={detail.currentContext} />
-            <HeaderPill icon={IconServer} value={detail.clusterName} />
-            <HeaderPill icon={IconTag} value={service.namespace} />
-            <HeaderPill icon={IconGitBranch} value={service.revision} />
-          </div>
-        </header>
+      <section className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(380px,0.9fr)]">
+        <div className="space-y-6">
+          <Panel
+            icon={IconInfoCircle}
+            title="Serving status"
+            description="Knative condition state and observed generation."
+          >
+            <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <Fact label="URL" value={service.url} wide />
+              <Fact label="Generation" value={detail.generation} />
+              <Fact
+                label="Observed generation"
+                value={detail.observedGeneration}
+              />
+              <Fact label="Resource version" value={detail.resourceVersion} />
+            </dl>
+            <ConditionList conditions={detail.conditions} />
+          </Panel>
 
-        {detail.errors.length > 0 ? (
-          <section className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950">
-            <div className="flex gap-3">
-              <IconAlertTriangle className="mt-0.5 size-4 shrink-0" />
-              <div className="space-y-1">
-                <h2 className="font-medium text-sm">Service read is partial</h2>
-                <ul className="space-y-1 text-amber-900 text-xs">
-                  {detail.errors.map((error) => (
-                    <li key={error}>{error}</li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          </section>
-        ) : null}
-
-        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <MetricTile
+          <Panel
             icon={IconRoute}
-            label="Traffic"
-            value={service.traffic}
-          />
-          <MetricTile
+            title="Traffic"
+            description="Route targets currently reported by Knative Serving."
+          >
+            <TrafficList targets={detail.trafficTargets} />
+          </Panel>
+
+          <Panel
+            icon={IconBox}
+            title="Revision template"
+            description="Container images, exposed ports, and configured environment keys."
+          >
+            <ContainerList containers={detail.containers} />
+          </Panel>
+        </div>
+
+        <aside className="space-y-6">
+          <Panel
             icon={IconBolt}
-            label="Dapr app"
-            value={service.daprEnabled ? service.daprAppId : "Disabled"}
-          />
-          <MetricTile
-            icon={IconGitBranch}
-            label="Min scale"
-            value={service.minScale}
-          />
-          <MetricTile
-            icon={IconClock}
-            label="Age"
-            value={formatAge(service.age)}
-          />
-        </section>
+            title="Dapr integration"
+            description="Sidecar annotations and Dapr resources scoped to this service."
+          >
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Fact
+                label="Sidecar"
+                value={service.daprEnabled ? "Enabled" : "Disabled"}
+              />
+              <Fact label="App ID" value={service.daprAppId} />
+            </div>
+            <DaprResourceList resources={detail.relatedDaprResources} />
+          </Panel>
 
-        <section className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(380px,0.9fr)]">
-          <div className="space-y-6">
-            <Panel
-              icon={IconInfoCircle}
-              title="Serving status"
-              description="Knative condition state and observed generation."
-            >
-              <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <Fact label="URL" value={service.url} wide />
-                <Fact label="Generation" value={detail.generation} />
-                <Fact
-                  label="Observed generation"
-                  value={detail.observedGeneration}
-                />
-                <Fact label="Resource version" value={detail.resourceVersion} />
-              </dl>
-              <ConditionList conditions={detail.conditions} />
-            </Panel>
+          <Panel
+            icon={IconTag}
+            title="Metadata"
+            description="Labels, annotations, and Kubernetes object identifiers."
+          >
+            <dl className="grid gap-3">
+              <Fact label="UID" value={detail.uid} />
+            </dl>
+            <KeyValueList title="Labels" items={detail.labels} />
+            <KeyValueList title="Annotations" items={detail.annotations} />
+          </Panel>
 
-            <Panel
-              icon={IconRoute}
-              title="Traffic"
-              description="Route targets currently reported by Knative Serving."
-            >
-              <TrafficList targets={detail.trafficTargets} />
-            </Panel>
-
-            <Panel
-              icon={IconBox}
-              title="Revision template"
-              description="Container images, exposed ports, and configured environment keys."
-            >
-              <ContainerList containers={detail.containers} />
-            </Panel>
-          </div>
-
-          <aside className="space-y-6">
-            <Panel
-              icon={IconBolt}
-              title="Dapr integration"
-              description="Sidecar annotations and Dapr resources scoped to this service."
-            >
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Fact
-                  label="Sidecar"
-                  value={service.daprEnabled ? "Enabled" : "Disabled"}
-                />
-                <Fact label="App ID" value={service.daprAppId} />
-              </div>
-              <DaprResourceList resources={detail.relatedDaprResources} />
-            </Panel>
-
-            <Panel
-              icon={IconTag}
-              title="Metadata"
-              description="Labels, annotations, and Kubernetes object identifiers."
-            >
-              <dl className="grid gap-3">
-                <Fact label="UID" value={detail.uid} />
-              </dl>
-              <KeyValueList title="Labels" items={detail.labels} />
-              <KeyValueList title="Annotations" items={detail.annotations} />
-            </Panel>
-
-            <Panel
-              icon={IconBraces}
-              title="Raw service manifest"
-              description="Current Knative Service custom resource returned by the cluster."
-            >
-              <pre className="max-h-[420px] overflow-auto rounded-md border border-zinc-200 bg-zinc-950 p-3 text-[0.7rem] text-zinc-100">
-                <code>{detail.rawJson}</code>
-              </pre>
-            </Panel>
-          </aside>
-        </section>
-      </div>
-    </main>
-  )
-}
-
-function HeaderPill({
-  icon: Icon,
-  value,
-}: {
-  icon: ComponentType<{ className?: string }>
-  value: string
-}) {
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2 py-1 font-medium">
-      <Icon className="size-3.5 text-blue-600" />
-      {value}
-    </span>
+          <Panel
+            icon={IconBraces}
+            title="Raw service manifest"
+            description="Current Knative Service custom resource returned by the cluster."
+          >
+            <pre className="max-h-[420px] overflow-auto rounded-md border border-zinc-200 bg-zinc-950 p-3 text-[0.7rem] text-zinc-100">
+              <code>{detail.rawJson}</code>
+            </pre>
+          </Panel>
+        </aside>
+      </section>
+    </ServicePageFrame>
   )
 }
 
@@ -550,25 +431,6 @@ function TableCell({
   )
 }
 
-function StatusBadge({ active, label }: { active: boolean; label: string }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-sm px-1.5 py-0.5 font-medium text-xs",
-        active ? "bg-emerald-50 text-emerald-700" : "bg-zinc-100 text-zinc-600",
-      )}
-    >
-      <span
-        className={cn(
-          "size-1.5 rounded-full",
-          active ? "bg-emerald-500" : "bg-zinc-400",
-        )}
-      />
-      {label}
-    </span>
-  )
-}
-
 function ResourceKind({ kind }: { kind: string }) {
   const className =
     kind === "Component"
@@ -593,33 +455,4 @@ function EmptyState({ title }: { title: string }) {
       <p className="mt-2 font-medium text-sm">{title}</p>
     </div>
   )
-}
-
-function formatTimestamp(value: string) {
-  return new Intl.DateTimeFormat("en", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).format(new Date(value))
-}
-
-function formatAge(value: string) {
-  if (!value) {
-    return "n/a"
-  }
-
-  const createdAt = new Date(value).getTime()
-  const diffMs = Date.now() - createdAt
-  const minutes = Math.max(1, Math.floor(diffMs / 60000))
-
-  if (minutes < 60) {
-    return `${minutes}m`
-  }
-
-  const hours = Math.floor(minutes / 60)
-  if (hours < 48) {
-    return `${hours}h`
-  }
-
-  return `${Math.floor(hours / 24)}d`
 }
