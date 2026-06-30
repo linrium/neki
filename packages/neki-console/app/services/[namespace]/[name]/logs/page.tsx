@@ -1,10 +1,8 @@
 import {
   IconAlertTriangle,
   IconClock,
-  IconCode,
   IconDatabase,
   IconFileText,
-  IconInfoCircle,
   IconTerminal2,
 } from "@tabler/icons-react"
 import type { ComponentType, ReactNode } from "react"
@@ -13,8 +11,7 @@ import {
   getServiceLogs,
   type ServiceLogEntry,
 } from "@/app/actions"
-import { cn } from "@/lib/utils"
-import { formatTimestamp, ServicePageFrame } from "../_components"
+import { ServicePageFrame } from "../_components"
 
 export const dynamic = "force-dynamic"
 
@@ -211,45 +208,5 @@ function StreamSummary({ stream }: { stream: Record<string, string> }) {
         </span>
       ))}
     </span>
-  )
-}
-
-function Fact({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0 rounded-md border border-zinc-100 bg-zinc-50 px-3 py-2">
-      <dt className="text-zinc-500 text-xs">{label}</dt>
-      <dd className="mt-1 truncate font-medium text-sm text-zinc-800">
-        {value}
-      </dd>
-    </div>
-  )
-}
-
-function ConfigList() {
-  const items = [
-    ["LOKI_BASE_URL", "Base URL for Loki, for example http://loki:3100"],
-    [
-      "LOKI_QUERY_TEMPLATE",
-      `Optional LogQL selector with "$${"{namespace}"}" and "$${"{name}"}"`,
-    ],
-    ["LOKI_LOG_WINDOW_MINUTES", "Lookback window, defaults to 60"],
-    ["LOKI_LOG_LIMIT", "Maximum log lines, defaults to 200"],
-    ["LOKI_TENANT_ID", "Optional X-Scope-OrgID header"],
-  ]
-
-  return (
-    <div className="space-y-2">
-      {items.map(([key, description]) => (
-        <div
-          key={key}
-          className={cn(
-            "rounded-md border border-zinc-100 bg-zinc-50 px-3 py-2",
-          )}
-        >
-          <p className="font-mono font-medium text-xs">{key}</p>
-          <p className="mt-1 text-zinc-500 text-xs">{description}</p>
-        </div>
-      ))}
-    </div>
   )
 }

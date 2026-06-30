@@ -4,6 +4,7 @@ import {
   IconCloud,
   IconExternalLink,
   IconGitBranch,
+  IconPlayerPlay,
   IconRefresh,
   IconServer,
   IconTag,
@@ -15,7 +16,7 @@ import { refreshService, type ServiceDetail } from "@/app/actions"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
-export type ServiceTab = "overview" | "logs"
+export type ServiceTab = "overview" | "logs" | "playground"
 
 export function ServicePageFrame({
   activeTab,
@@ -176,6 +177,12 @@ function ServiceTabs({
       label: "Logs",
       href: `${baseHref}/logs`,
       icon: IconTerminal2,
+    },
+    {
+      value: "playground",
+      label: "Playground",
+      href: `${baseHref}/playground`,
+      icon: IconPlayerPlay,
     },
   ]
 

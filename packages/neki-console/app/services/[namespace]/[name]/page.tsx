@@ -1,7 +1,6 @@
 import {
   IconBolt,
   IconBox,
-  IconBraces,
   IconClock,
   IconCode,
   IconGitBranch,

@@ -119,6 +119,18 @@ export type ClusterOverview = {
   errors: string[]
 }
 
+export type PlaygroundResult = {
+  ok: boolean
+  status: number
+  statusText: string
+  url: string
+  method: string
+  durationMs: number
+  responseBody: string
+  responseHeaders: Array<{ key: string; value: string }>
+  error: string
+}
+
 const EMPTY_VALUE = "n/a"
 const DEFAULT_LOG_LIMIT = 200
 const DEFAULT_LOG_WINDOW_MINUTES = 60
@@ -131,12 +143,72 @@ export async function refreshDashboard() {
   revalidatePath("/")
 }
 
+export async function triggerKongFunction(
+  _previousState: PlaygroundResult,
+  formData: FormData,
+): Promise<PlaygroundResult> {
+  const startedAt = Date.now()
+  const method = getFormString(formData, "method") || "POST"
+  const functionName = getFormString(formData, "functionName")
+  const path = getFormString(formData, "path")
+  const body = getFormString(formData, "body")
+  const kongBaseUrl =
+    getFormString(formData, "kongBaseUrl") ||
+    process.env.KONG_BASE_URL ||
+    "http://localhost:8080"
+
+  try {
+    if (!functionName) {
+      throw new Error("Function name is required.")
+    }
+
+    const url = buildKongFunctionUrl(kongBaseUrl, functionName, path)
+    const response = await fetch(url, {
+      method,
+      headers: body ? { "Content-Type": "application/json" } : undefined,
+      body:
+        method === "GET" || method === "HEAD" ? undefined : body || undefined,
+      cache: "no-store",
+    })
+    const responseBody = await response.text()
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      statusText: response.statusText,
+      url,
+      method,
+      durationMs: Date.now() - startedAt,
+      responseBody: formatResponseBody(responseBody),
+      responseHeaders: Array.from(response.headers.entries()).map(
+        ([key, value]) => ({ key, value }),
+      ),
+      error: "",
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      statusText: "Request failed",
+      url: "",
+      method,
+      durationMs: Date.now() - startedAt,
+      responseBody: "",
+      responseHeaders: [],
+      error: getErrorMessage(error),
+    }
+  }
+}
+
 export async function refreshService(namespace: string, name: string) {
   revalidatePath(
     `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`,
   )
   revalidatePath(
     `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/logs`,
+  )
+  revalidatePath(
+    `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/playground`,
   )
 }
 
@@ -683,6 +755,26 @@ function normalizeBaseUrl(value: string) {
   return value.endsWith("/") ? value : `${value}/`
 }
 
+function buildKongFunctionUrl(
+  baseUrl: string,
+  functionName: string,
+  path: string,
+) {
+  const url = new URL(
+    `/api/functions/${encodeURIComponent(functionName)}`,
+    normalizeBaseUrl(baseUrl),
+  )
+  const normalizedPath = path.trim()
+
+  if (normalizedPath) {
+    url.pathname += normalizedPath.startsWith("/")
+      ? normalizedPath
+      : `/${normalizedPath}`
+  }
+
+  return url.toString()
+}
+
 function toLokiTimestamp(value: number) {
   return String(value * 1_000_000)
 }
@@ -793,6 +885,23 @@ function getPositiveInteger(value: string | undefined, fallback: number) {
 
   const parsed = Number(value)
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback
+}
+
+function getFormString(formData: FormData, key: string) {
+  const value = formData.get(key)
+  return typeof value === "string" ? value.trim() : ""
+}
+
+function formatResponseBody(value: string) {
+  if (!value) {
+    return ""
+  }
+
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2)
+  } catch {
+    return value
+  }
 }
 
 function getStringRecord(value: unknown) {
