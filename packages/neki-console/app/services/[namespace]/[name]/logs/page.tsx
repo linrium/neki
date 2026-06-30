@@ -41,28 +41,6 @@ export default async function ServiceLogsPage({
       name={name}
       namespace={namespace}
     >
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <MetricTile
-          icon={IconTerminal2}
-          label="Log lines"
-          value={String(logs.entries.length)}
-        />
-        <MetricTile
-          icon={IconClock}
-          label="Window"
-          value={`${logs.windowMinutes}m`}
-        />
-        <MetricTile
-          icon={IconDatabase}
-          label="Streams"
-          value={String(streamCount)}
-        />
-        <MetricTile
-          icon={IconFileText}
-          label="Limit"
-          value={String(logs.limit)}
-        />
-      </section>
 
       {logs.errors.length > 0 ? (
         <section className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950">

@@ -90,14 +90,6 @@ export default async function ServicePage({ params }: ServicePageProps) {
           label="Age"
           value={formatAge(service.age)}
         />
-        <MetricTile
-          icon={IconDatabase}
-          label="Postgres"
-          value={String(
-            postgres.clusters.filter((cluster) => cluster.linkedToService)
-              .length,
-          )}
-        />
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(380px,0.9fr)]">

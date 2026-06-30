@@ -37,24 +37,6 @@ export default async function ServicePlaygroundPage({
       name={name}
       namespace={namespace}
     >
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <MetricTile
-          icon={IconRoute}
-          label="Route"
-          value={`/api/functions/${name}`}
-        />
-        <MetricTile
-          icon={IconSend}
-          label="Presets"
-          value={String(presets.length)}
-        />
-        <MetricTile icon={IconTopologyStar} label="Mode" value={primaryKind} />
-        <MetricTile
-          icon={IconApi}
-          label="Gateway"
-          value={formatGateway(kongBaseUrl)}
-        />
-      </section>
 
       <section className="grid gap-6 xl:grid-cols-[minmax(0,0.9fr)_minmax(420px,1.1fr)]">
         <aside className="space-y-3">

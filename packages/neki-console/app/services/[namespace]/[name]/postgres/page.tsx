@@ -47,32 +47,6 @@ export default async function ServicePostgresPage({
       name={name}
       namespace={namespace}
     >
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <MetricTile
-          icon={IconDatabase}
-          label="Provider"
-          value="CloudNativePG"
-        />
-        <MetricTile
-          icon={IconServerBolt}
-          label="Clusters"
-          value={String(postgres.clusters.length)}
-        />
-        <MetricTile
-          icon={IconShieldLock}
-          label="Secret store"
-          value={defaultVaultComponent}
-        />
-        <MetricTile
-          icon={IconCheck}
-          label="Linked"
-          value={String(
-            postgres.clusters.filter((cluster) => cluster.linkedToService)
-              .length,
-          )}
-        />
-      </section>
-
       {postgres.errors.length > 0 ? (
         <section className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950">
           <div className="flex gap-3">

@@ -59,25 +59,6 @@ export default async function ServiceSecretsPage({
       name={name}
       namespace={namespace}
     >
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <MetricTile
-          icon={IconShieldLock}
-          label="Secret store"
-          value={defaultVaultComponent}
-        />
-        <MetricTile
-          icon={IconKey}
-          label="Default secret"
-          value={defaultSecretName}
-        />
-        <MetricTile
-          icon={IconListDetails}
-          label="Vault components"
-          value={String(vaultComponents.length)}
-        />
-        <MetricTile icon={IconEye} label="Reveal mode" value="On demand" />
-      </section>
-
       {vaultComponents.length === 0 ? (
         <section className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950">
           <div className="flex flex-wrap items-center gap-2">
