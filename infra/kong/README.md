@@ -47,6 +47,18 @@ For local testing, port-forward the generated ingress service:
 curl -i http://localhost:8080/echo
 ```
 
+On Docker Desktop Kubernetes, expose Kong persistently on localhost with the
+cluster LoadBalancer integration instead of keeping a port-forward process open:
+
+```bash
+./infra/kong/expose-local.sh
+curl -i http://localhost/echo
+```
+
+The script patches the Kong Operator `GatewayConfiguration` so the generated
+Kong ingress service is reconciled as `LoadBalancer`. Docker Desktop then keeps
+the service reachable from the host at `localhost` on the service port.
+
 ## Knative path-style function routes
 
 Knative Serving routes requests by hostname, for example
@@ -102,3 +114,10 @@ Configuration knobs:
 - `INSTALL_KNATIVE_FUNCTIONS`, default `true`
 - `FUNCTION_NAMESPACE`, default `default`
 - `KNATIVE_DOMAIN`, default `example.com`
+
+`expose-local.sh` also supports:
+
+- `NAMESPACE`, default `kong`
+- `GATEWAY_CONFIGURATION`, default `kong-configuration`
+- `GATEWAY`, default `kong`
+- `TIMEOUT`, default `180s`

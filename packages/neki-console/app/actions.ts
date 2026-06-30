@@ -58,6 +58,23 @@ export type ServiceTrafficTarget = {
   url: string
 }
 
+export type ServiceRevision = {
+  name: string
+  namespace: string
+  ready: boolean
+  status: string
+  reason: string
+  message: string
+  trafficPercent: string
+  trafficPercentValue: number
+  trafficLabel: string
+  url: string
+  image: string
+  imageDigest: string
+  observedGeneration: string
+  createdAt: string
+}
+
 export type ServiceContainer = {
   name: string
   image: string
@@ -78,6 +95,7 @@ export type ServiceDetail = {
   annotations: Array<{ key: string; value: string }>
   conditions: ServiceCondition[]
   trafficTargets: ServiceTrafficTarget[]
+  revisions: ServiceRevision[]
   containers: ServiceContainer[]
   relatedDaprResources: DaprResource[]
   rawJson: string
@@ -258,11 +276,13 @@ export async function getServiceDetail(
   try {
     const { customObjectsApi, currentCluster, currentContext } =
       getClusterClient()
-    const [serviceItem, daprResult] = await Promise.all([
+    const [serviceItem, daprResult, revisionsResult] = await Promise.all([
       getNamespacedKnativeService(customObjectsApi, namespace, name),
       listDaprResources(customObjectsApi),
+      listKnativeRevisions(customObjectsApi, namespace, name),
     ])
     const service = toKnativeService(serviceItem)
+    const traffic = getRecord(serviceItem.status)?.traffic
 
     return {
       clusterName: getClusterName(currentCluster),
@@ -280,7 +300,12 @@ export async function getServiceDetail(
       conditions: toServiceConditions(
         getRecord(serviceItem.status)?.conditions,
       ),
-      trafficTargets: toTrafficTargets(getRecord(serviceItem.status)?.traffic),
+      trafficTargets: toTrafficTargets(traffic),
+      revisions: toServiceRevisions(
+        revisionsResult.items,
+        traffic,
+        service.revision,
+      ),
       containers: toServiceContainers(
         getRecord(getRecord(serviceItem.spec?.template)?.spec)?.containers,
       ),
@@ -289,7 +314,7 @@ export async function getServiceDetail(
         service,
       ),
       rawJson: JSON.stringify(serviceItem, null, 2),
-      errors: daprResult.errors,
+      errors: [...daprResult.errors, ...revisionsResult.errors],
     }
   } catch (error) {
     return {
@@ -305,6 +330,7 @@ export async function getServiceDetail(
       annotations: [],
       conditions: [],
       trafficTargets: [],
+      revisions: [],
       containers: [],
       relatedDaprResources: [],
       rawJson: "",
@@ -393,6 +419,33 @@ async function getNamespacedKnativeService(
     plural: "services",
     name,
   })) as KubernetesCustomObject
+}
+
+async function listKnativeRevisions(
+  customObjectsApi: CustomObjectsApi,
+  namespace: string,
+  serviceName: string,
+): Promise<{ items: KubernetesCustomObject[]; errors: string[] }> {
+  try {
+    const response = (await customObjectsApi.listNamespacedCustomObject({
+      group: "serving.knative.dev",
+      version: "v1",
+      namespace,
+      plural: "revisions",
+      labelSelector: `serving.knative.dev/service=${serviceName}`,
+      timeoutSeconds: 8,
+    })) as CustomObjectList
+
+    return {
+      items: response.items ?? [],
+      errors: [],
+    }
+  } catch (error) {
+    return {
+      items: [],
+      errors: [`Knative revisions: ${getErrorMessage(error)}`],
+    }
+  }
 }
 
 async function listDaprResources(
@@ -528,6 +581,127 @@ function toTrafficTargets(traffic: unknown): ServiceTrafficTarget[] {
       url: getString(record?.url) || EMPTY_VALUE,
     }
   })
+}
+
+function toServiceRevisions(
+  revisions: KubernetesCustomObject[],
+  traffic: unknown,
+  latestReadyRevisionName: string,
+): ServiceRevision[] {
+  const trafficByRevision = toRevisionTraffic(traffic, latestReadyRevisionName)
+
+  return revisions
+    .map((revision) => {
+      const status = getRecord(revision.status)
+      const spec = getRecord(revision.spec)
+      const readyCondition = getCondition(status?.conditions, "Ready")
+      const container = getRecord(getArrayItem(spec?.containers, 0))
+      const containerStatus = getRecord(
+        getArrayItem(status?.containerStatuses, 0),
+      )
+      const trafficTarget = trafficByRevision.get(revision.metadata?.name ?? "")
+
+      return {
+        name: revision.metadata?.name ?? EMPTY_VALUE,
+        namespace: revision.metadata?.namespace ?? EMPTY_VALUE,
+        ready: readyCondition?.status === "True",
+        status: readyCondition?.status || EMPTY_VALUE,
+        reason: readyCondition?.reason || EMPTY_VALUE,
+        message: readyCondition?.message || EMPTY_VALUE,
+        trafficPercent: trafficTarget?.percent ?? EMPTY_VALUE,
+        trafficPercentValue: trafficTarget?.percentValue ?? 0,
+        trafficLabel: trafficTarget?.label ?? "No routed traffic",
+        url: trafficTarget?.url ?? EMPTY_VALUE,
+        image: getString(container?.image) || EMPTY_VALUE,
+        imageDigest: getString(containerStatus?.imageDigest) || EMPTY_VALUE,
+        observedGeneration: formatValue(status?.observedGeneration),
+        createdAt: revision.metadata?.creationTimestamp ?? "",
+      }
+    })
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+}
+
+function toRevisionTraffic(
+  traffic: unknown,
+  latestReadyRevisionName: string,
+): Map<
+  string,
+  {
+    percent: string
+    percentValue: number
+    label: string
+    url: string
+  }
+> {
+  const trafficByRevision = new Map<
+    string,
+    {
+      percentLabels: string[]
+      percentValue: number
+      labels: string[]
+      urls: string[]
+      latest: boolean
+    }
+  >()
+
+  if (!Array.isArray(traffic)) {
+    return new Map()
+  }
+
+  for (const target of traffic) {
+    const record = getRecord(target)
+    const latest = record?.latestRevision === true
+    const revisionName =
+      getString(record?.revisionName) || (latest ? latestReadyRevisionName : "")
+
+    if (!revisionName || revisionName === EMPTY_VALUE) {
+      continue
+    }
+
+    const percent = getNumber(record?.percent)
+    const tag = getString(record?.tag)
+    const url = getString(record?.url)
+    const existing = trafficByRevision.get(revisionName) ?? {
+      percentLabels: [],
+      percentValue: 0,
+      labels: [],
+      urls: [],
+      latest: false,
+    }
+
+    if (percent !== undefined) {
+      existing.percentLabels.push(`${percent}%`)
+      existing.percentValue += percent
+    }
+    if (tag) {
+      existing.labels.push(tag)
+    }
+    if (url) {
+      existing.urls.push(url)
+    }
+    existing.latest = existing.latest || latest
+    trafficByRevision.set(revisionName, existing)
+  }
+
+  return new Map(
+    [...trafficByRevision.entries()].map(([revision, value]) => [
+      revision,
+      {
+        percent:
+          value.percentLabels.length > 0
+            ? value.percentLabels.join(" + ")
+            : EMPTY_VALUE,
+        percentValue: Math.min(value.percentValue, 100),
+        label:
+          value.labels.length > 0
+            ? value.labels.join(", ")
+            : value.latest
+              ? "latest route"
+              : "default route",
+        url: value.urls[0] ?? EMPTY_VALUE,
+      },
+    ]),
+  )
 }
 
 function toServiceContainers(containers: unknown): ServiceContainer[] {
@@ -856,6 +1030,10 @@ function getStringArray(value: unknown) {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
     : []
+}
+
+function getArrayItem(value: unknown, index: number) {
+  return Array.isArray(value) ? value[index] : undefined
 }
 
 function toKeyValues(value: unknown) {

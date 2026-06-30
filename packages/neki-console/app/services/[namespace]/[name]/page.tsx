@@ -5,7 +5,6 @@ import {
   IconCode,
   IconGitBranch,
   IconInfoCircle,
-  IconRoute,
   IconTag,
 } from "@tabler/icons-react"
 import type { ComponentType, ReactNode } from "react"
@@ -14,8 +13,10 @@ import {
   getServiceDetail,
   type ServiceCondition,
   type ServiceContainer,
-  type ServiceTrafficTarget,
+  type ServiceRevision,
 } from "@/app/actions"
+import { Badge } from "@/components/ui/badge"
+import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
 import { formatAge, ServicePageFrame, StatusBadge } from "./_components"
 
@@ -54,7 +55,11 @@ export default async function ServicePage({ params }: ServicePageProps) {
       namespace={namespace}
     >
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <MetricTile icon={IconRoute} label="Traffic" value={service.traffic} />
+        <MetricTile
+          icon={IconGitBranch}
+          label="Revisions"
+          value={String(detail.revisions.length)}
+        />
         <MetricTile
           icon={IconBolt}
           label="Dapr app"
@@ -92,11 +97,14 @@ export default async function ServicePage({ params }: ServicePageProps) {
           </Panel>
 
           <Panel
-            icon={IconRoute}
-            title="Traffic"
-            description="Route targets currently reported by Knative Serving."
+            icon={IconGitBranch}
+            title="Revisions"
+            description="Knative revisions with readiness, traffic split, and deployed image details."
           >
-            <TrafficList targets={detail.trafficTargets} />
+            <RevisionList
+              latestReadyRevision={service.revision}
+              revisions={detail.revisions}
+            />
           </Panel>
 
           <Panel
@@ -179,7 +187,7 @@ function Panel({
   return (
     <section className="rounded-md border border-zinc-200 bg-white p-4">
       <div className="flex gap-3">
-        <span className="mt-0.5 rounded-md border border-zinc-200 bg-zinc-50 p-2 text-zinc-600">
+        <span className="mt-0.5 shrink-0 self-start rounded-md border border-zinc-200 bg-zinc-50 p-2 text-zinc-600">
           <Icon className="size-4" />
         </span>
         <div>
@@ -258,32 +266,93 @@ function ConditionList({ conditions }: { conditions: ServiceCondition[] }) {
   )
 }
 
-function TrafficList({ targets }: { targets: ServiceTrafficTarget[] }) {
-  if (targets.length === 0) {
-    return <EmptyState title="No traffic targets reported" />
+function RevisionList({
+  latestReadyRevision,
+  revisions,
+}: {
+  latestReadyRevision: string
+  revisions: ServiceRevision[]
+}) {
+  if (revisions.length === 0) {
+    return <EmptyState title="No revisions found for this service" />
   }
 
   return (
-    <div className="grid gap-3 md:grid-cols-2">
-      {targets.map((target) => (
+    <div className="space-y-3">
+      {revisions.map((revision) => (
         <div
-          key={`${target.label}/${target.revision}/${target.percent}`}
-          className="rounded-md border border-zinc-200 bg-zinc-50 p-3"
+          key={`${revision.namespace}/${revision.name}`}
+          className="rounded-md border border-zinc-200 bg-zinc-50 p-4"
         >
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <h3 className="font-medium text-sm">{target.label}</h3>
-              <p className="mt-1 truncate text-zinc-500 text-xs">
-                {target.revision}
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0 flex-1 space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="break-all font-semibold text-sm">
+                  {revision.name}
+                </h3>
+                <Badge variant={revision.ready ? "success" : "warning"}>
+                  {revision.ready ? "Ready" : revision.status}
+                </Badge>
+                {revision.name === latestReadyRevision ? (
+                  <Badge variant="outline">Latest ready</Badge>
+                ) : null}
+              </div>
+
+              <dl className="grid gap-2 text-xs sm:grid-cols-2">
+                <RevisionFact label="Image" value={revision.image} wide />
+                <RevisionFact
+                  label="Image digest"
+                  value={revision.imageDigest}
+                  wide
+                />
+                <RevisionFact
+                  label="Reason"
+                  value={revision.reason || revision.message}
+                />
+                <RevisionFact
+                  label="Observed generation"
+                  value={revision.observedGeneration}
+                />
+                <RevisionFact label="Route" value={revision.trafficLabel} />
+                <RevisionFact label="URL" value={revision.url} />
+              </dl>
+            </div>
+            <div className="w-full rounded-md border border-zinc-200 bg-white p-3 lg:w-44">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium text-zinc-500 text-xs">
+                  Traffic
+                </span>
+                <span className="font-semibold text-blue-700 text-sm">
+                  {revision.trafficPercent}
+                </span>
+              </div>
+              <Progress className="mt-3" value={revision.trafficPercentValue} />
+              <p className="mt-3 text-zinc-500 text-xs">
+                Created {formatAge(revision.createdAt)}
               </p>
             </div>
-            <span className="rounded-sm bg-blue-50 px-2 py-1 font-medium text-blue-700 text-xs">
-              {target.percent === "n/a" ? target.percent : `${target.percent}%`}
-            </span>
           </div>
-          <p className="mt-3 truncate text-zinc-600 text-xs">{target.url}</p>
         </div>
       ))}
+    </div>
+  )
+}
+
+function RevisionFact({
+  label,
+  value,
+  wide = false,
+}: {
+  label: string
+  value: string
+  wide?: boolean
+}) {
+  return (
+    <div className={cn("min-w-0", wide && "sm:col-span-2")}>
+      <dt className="text-zinc-500">{label}</dt>
+      <dd className="mt-1 break-all font-medium text-zinc-700">
+        {value || "n/a"}
+      </dd>
     </div>
   )
 }

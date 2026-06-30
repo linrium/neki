@@ -180,11 +180,15 @@ INGRESS_SERVICE_TYPE="$(ingress_service_type)"
 
 if [[ "${INGRESS_SERVICE_TYPE}" == "NodePort" ]]; then
   echo "Gateway ingress is exposed as NodePort $(ingress_service_node_port)."
+  echo "For persistent localhost exposure on Docker Desktop, run:"
+  echo "./infra/kong/expose-local.sh"
   echo "For local testing, use port-forwarding:"
   echo "kubectl port-forward --namespace kong service/${INGRESS_SERVICE} 8080:80"
   echo "Then test with: curl -i http://localhost:8080/echo"
 elif [[ -z "$(gateway_address)" ]]; then
-  echo "Gateway has no external address yet. For local clusters, use port-forwarding:"
+  echo "Gateway has no external address yet. For Docker Desktop, run:"
+  echo "./infra/kong/expose-local.sh"
+  echo "For other local clusters, use port-forwarding:"
   echo "kubectl port-forward --namespace kong service/${INGRESS_SERVICE} 8080:80"
   echo "Then test with: curl -i http://localhost:8080/echo"
 fi
