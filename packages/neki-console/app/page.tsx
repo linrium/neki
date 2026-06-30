@@ -115,7 +115,7 @@ export default async function Home() {
           />
         </section>
 
-        <section className="grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(360px,0.9fr)]">
+        <section className="grid gap-6">
           <div className="space-y-3">
             <SectionHeader
               title="Knative Services"
@@ -196,7 +196,7 @@ export default async function Home() {
             </div>
           </div>
 
-          <aside className="space-y-3">
+          <div className="space-y-3">
             <SectionHeader
               title="Dapr Inventory"
               description="Components, configurations, and subscriptions discovered from dapr.io CRDs."
@@ -257,7 +257,7 @@ export default async function Home() {
                 </div>
               )}
             </div>
-          </aside>
+          </div>
         </section>
       </div>
     </main>
