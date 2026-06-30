@@ -136,16 +136,6 @@ export default async function ServicePage({ params }: ServicePageProps) {
             <KeyValueList title="Labels" items={detail.labels} />
             <KeyValueList title="Annotations" items={detail.annotations} />
           </Panel>
-
-          <Panel
-            icon={IconBraces}
-            title="Raw service manifest"
-            description="Current Knative Service custom resource returned by the cluster."
-          >
-            <pre className="max-h-[420px] overflow-auto rounded-md border border-zinc-200 bg-zinc-950 p-3 text-[0.7rem] text-zinc-100">
-              <code>{detail.rawJson}</code>
-            </pre>
-          </Panel>
         </aside>
       </section>
     </ServicePageFrame>

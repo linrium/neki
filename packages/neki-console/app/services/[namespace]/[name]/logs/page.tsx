@@ -83,7 +83,7 @@ export default async function ServiceLogsPage({
         </section>
       ) : null}
 
-      <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <section className="grid gap-6">
         <Panel
           icon={IconTerminal2}
           title="Service logs"
@@ -91,36 +91,6 @@ export default async function ServiceLogsPage({
         >
           <LogList entries={logs.entries} />
         </Panel>
-
-        <aside className="space-y-6">
-          <Panel
-            icon={IconCode}
-            title="Loki query"
-            description="The LogQL selector used for this service."
-          >
-            <pre className="overflow-auto rounded-md border border-zinc-200 bg-zinc-950 p-3 text-[0.72rem] text-zinc-100">
-              <code>{logs.query}</code>
-            </pre>
-            <div className="grid gap-3">
-              <Fact
-                label="Last synced"
-                value={formatTimestamp(logs.lastSyncedAt)}
-              />
-              <Fact
-                label="Default selector"
-                value='{namespace="...", pod=~"service.*"}'
-              />
-            </div>
-          </Panel>
-
-          <Panel
-            icon={IconInfoCircle}
-            title="Configuration"
-            description="Set these environment variables on the console server to tune Loki."
-          >
-            <ConfigList />
-          </Panel>
-        </aside>
       </section>
     </ServicePageFrame>
   )
