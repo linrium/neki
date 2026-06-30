@@ -23,7 +23,7 @@ spec:
             - name: PUBSUB_NAME
               value: pubsub
             - name: NOTIFICATIONS_TOPIC
-              value: order-notifications
+              value: "${NOTIFICATIONS_TOPIC}"
             - name: OTEL_SERVICE_NAME
               value: dapr-workflow
             - name: OTEL_EXPORTER_OTLP_ENDPOINT

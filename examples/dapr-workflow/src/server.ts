@@ -1,4 +1,5 @@
 import { DaprWorkflowClient, WorkflowRuntime, WorkflowRuntimeStatus } from "@dapr/dapr";
+import { connect } from "node:net";
 import { instrumentRequest, logError, logInfo, shutdownTelemetry } from "./telemetry";
 import {
   approvalEventName,
@@ -14,7 +15,10 @@ import {
 
 const port = Number(process.env.PORT ?? 3000);
 const daprHost = process.env.DAPR_HOST ?? "127.0.0.1";
+const daprHttpPort = Number(process.env.DAPR_HTTP_PORT ?? 3500);
 const daprGrpcPort = process.env.DAPR_GRPC_PORT ?? "50001";
+const workflowStartupTimeoutMs = Number(process.env.WORKFLOW_STARTUP_TIMEOUT_MS ?? 60000);
+const workflowStartupRetryMs = Number(process.env.WORKFLOW_STARTUP_RETRY_MS ?? 1000);
 
 const workflowClient = new DaprWorkflowClient({
   daprHost,
@@ -101,6 +105,68 @@ function workflowStatusName(status: WorkflowRuntimeStatus) {
   return WorkflowRuntimeStatus[status] ?? String(status);
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function waitForTcp(host: string, port: number, timeoutMs: number) {
+  return new Promise<void>((resolve, reject) => {
+    const socket = connect({ host, port });
+
+    const cleanup = () => {
+      socket.removeAllListeners("connect");
+      socket.removeAllListeners("error");
+      socket.removeAllListeners("timeout");
+    };
+
+    socket.once("connect", () => {
+      cleanup();
+      socket.end();
+      resolve();
+    });
+
+    socket.once("error", (error) => {
+      cleanup();
+      socket.destroy();
+      reject(error);
+    });
+
+    socket.once("timeout", () => {
+      cleanup();
+      socket.destroy();
+      reject(new Error(`Timed out connecting to ${host}:${port}`));
+    });
+
+    socket.setTimeout(timeoutMs);
+  });
+}
+
+async function waitForDaprSidecar() {
+  const deadline = Date.now() + workflowStartupTimeoutMs;
+  let lastError: unknown;
+
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`http://${daprHost}:${daprHttpPort}/v1.0/healthz/outbound`, {
+        signal: AbortSignal.timeout(workflowStartupRetryMs),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Dapr outbound health returned ${response.status}`);
+      }
+
+      await waitForTcp(daprHost, Number(daprGrpcPort), workflowStartupRetryMs);
+      return;
+    } catch (error) {
+      lastError = error;
+      await sleep(workflowStartupRetryMs);
+    }
+  }
+
+  const reason = lastError instanceof Error ? lastError.message : String(lastError);
+  throw new Error(`Dapr sidecar was not ready after ${workflowStartupTimeoutMs}ms: ${reason}`);
+}
+
 async function workflowStateResponse(orderId: string) {
   const state = await workflowClient.getWorkflowState(orderId, true);
 
@@ -173,7 +239,8 @@ function approvalFromBody(body: unknown): Approval | string {
   };
 }
 
-const runtimeStarted = workflowRuntime.start().then(() => {
+const runtimeStarted = waitForDaprSidecar().then(async () => {
+  await workflowRuntime.start();
   logInfo("Workflow runtime started", {
     "workflow.name": workflowName,
   });

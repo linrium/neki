@@ -9,12 +9,19 @@ IMAGE_REPOSITORY="${IMAGE_REPOSITORY:-dev.local/dapr-workflow}"
 IMAGE_PULL_POLICY="${IMAGE_PULL_POLICY:-Always}"
 REDIS_HOST="${REDIS_HOST:-redis.${NAMESPACE}.svc.cluster.local:6379}"
 REDIS_PASSWORD="${REDIS_PASSWORD:-}"
+NOTIFICATIONS_TOPIC="${NOTIFICATIONS_TOPIC:-order-notifications}"
 KAFKA_BROKERS="${KAFKA_BROKERS:-redpanda-0.redpanda.redpanda.svc.cluster.local:9093}"
 KAFKA_CONSUMER_GROUP="${KAFKA_CONSUMER_GROUP:-dapr-workflow}"
 KAFKA_AUTH_TYPE="${KAFKA_AUTH_TYPE:-certificate}"
 KAFKA_DISABLE_TLS="${KAFKA_DISABLE_TLS:-false}"
 KAFKA_SKIP_VERIFY="${KAFKA_SKIP_VERIFY:-false}"
 KAFKA_VERSION="${KAFKA_VERSION:-2.0.0}"
+KAFKA_CREATE_TOPICS="${KAFKA_CREATE_TOPICS:-true}"
+KAFKA_TOPICS="${KAFKA_TOPICS:-${NOTIFICATIONS_TOPIC}}"
+KAFKA_TOPIC_PARTITIONS="${KAFKA_TOPIC_PARTITIONS:-1}"
+KAFKA_TOPIC_REPLICAS="${KAFKA_TOPIC_REPLICAS:-1}"
+KAFKA_ADMIN_NAMESPACE="${KAFKA_ADMIN_NAMESPACE:-redpanda}"
+KAFKA_ADMIN_POD="${KAFKA_ADMIN_POD:-redpanda-0}"
 SYNC_KAFKA_CA_SECRET="${SYNC_KAFKA_CA_SECRET:-true}"
 KAFKA_CA_SECRET_NAMESPACE="${KAFKA_CA_SECRET_NAMESPACE:-redpanda}"
 KAFKA_CA_SECRET_NAME="${KAFKA_CA_SECRET_NAME:-redpanda-default-root-certificate}"
@@ -44,6 +51,7 @@ apply_template() {
     IMAGE_PULL_POLICY="${IMAGE_PULL_POLICY}" \
     REDIS_HOST="${REDIS_HOST}" \
     REDIS_PASSWORD="${REDIS_PASSWORD}" \
+    NOTIFICATIONS_TOPIC="${NOTIFICATIONS_TOPIC}" \
     KAFKA_BROKERS="${KAFKA_BROKERS}" \
     KAFKA_CONSUMER_GROUP="${KAFKA_CONSUMER_GROUP}" \
     KAFKA_AUTH_TYPE="${KAFKA_AUTH_TYPE}" \
@@ -53,6 +61,34 @@ apply_template() {
     KAFKA_LOCAL_CA_SECRET_NAME="${KAFKA_LOCAL_CA_SECRET_NAME}" \
     KAFKA_CA_SECRET_KEY="${KAFKA_CA_SECRET_KEY}" \
     envsubst < "${file}" | kubectl apply -f -
+}
+
+ensure_kafka_topics() {
+  if [[ "${KAFKA_CREATE_TOPICS}" != "true" ]]; then
+    echo "Skipping Kafka topic creation"
+    return
+  fi
+
+  echo "Ensuring Kafka topics exist: ${KAFKA_TOPICS}"
+
+  local topics=()
+  local topic
+  IFS=',' read -r -a topics <<< "${KAFKA_TOPICS}"
+  for topic in "${topics[@]}"; do
+    topic="${topic//[[:space:]]/}"
+    if [[ -z "${topic}" ]]; then
+      continue
+    fi
+
+    if kubectl exec --namespace "${KAFKA_ADMIN_NAMESPACE}" "${KAFKA_ADMIN_POD}" -- rpk topic describe "${topic}" >/dev/null 2>&1; then
+      echo "Kafka topic ${topic} already exists"
+    else
+      kubectl exec --namespace "${KAFKA_ADMIN_NAMESPACE}" "${KAFKA_ADMIN_POD}" -- \
+        rpk topic create "${topic}" \
+          --partitions "${KAFKA_TOPIC_PARTITIONS}" \
+          --replicas "${KAFKA_TOPIC_REPLICAS}"
+    fi
+  done
 }
 
 IMAGE_TAG="${IMAGE_TAG:-$(random_tag)}"
@@ -83,6 +119,7 @@ kubectl create namespace "${NAMESPACE}" --dry-run=client --output yaml | kubectl
 
 echo "Using existing Redis at ${REDIS_HOST}"
 echo "Using existing Kafka/Redpanda brokers at ${KAFKA_BROKERS}"
+ensure_kafka_topics
 
 if [[ "${SYNC_KAFKA_CA_SECRET}" == "true" ]]; then
   echo "Copying Kafka CA secret ${KAFKA_CA_SECRET_NAMESPACE}/${KAFKA_CA_SECRET_NAME} to ${NAMESPACE}/${KAFKA_LOCAL_CA_SECRET_NAME}"

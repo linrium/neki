@@ -40,9 +40,10 @@ From this directory:
 ./deploy.sh
 ```
 
-The script builds `dev.local/dapr-workflow:<random-tag>`, applies the Dapr Redis
-state store, Kafka pub/sub component, Dapr `Configuration`, and deploys the
-Knative Service. It does not create Redis or Redpanda.
+The script builds `dev.local/dapr-workflow:<random-tag>`, ensures the Kafka
+notification topic exists, applies the Dapr Redis state store, Kafka pub/sub
+component, Dapr `Configuration`, and deploys the Knative Service. It does not
+create Redis or Redpanda.
 
 By default, Dapr connects to an existing same-namespace Redis service named
 `redis`:
@@ -97,6 +98,34 @@ KAFKA_LOCAL_CA_SECRET_NAME=redpanda-default-root-certificate
 
 Set `SYNC_KAFKA_CA_SECRET=false` if you manage that CA secret yourself in the
 application namespace.
+
+The Dapr sidecar subscribes to the notification topic as soon as the app starts.
+Kafka brokers with topic auto-creation disabled return `topic or partition that
+does not exist` until that topic exists, so `deploy.sh` creates the default topic
+through `rpk` in the Redpanda broker Pod:
+
+```text
+NOTIFICATIONS_TOPIC=order-notifications
+KAFKA_CREATE_TOPICS=true
+KAFKA_TOPICS=order-notifications
+KAFKA_TOPIC_PARTITIONS=1
+KAFKA_TOPIC_REPLICAS=1
+KAFKA_ADMIN_NAMESPACE=redpanda
+KAFKA_ADMIN_POD=redpanda-0
+```
+
+Set `KAFKA_CREATE_TOPICS=false` if you create topics another way. If you change
+`NOTIFICATIONS_TOPIC`, `KAFKA_TOPICS` defaults to the same value.
+
+The workflow worker waits for the Dapr sidecar HTTP health endpoint and gRPC port
+before calling the Dapr Workflow SDK. This avoids a startup race where the SDK's
+first worker stream can fail with `ECONNREFUSED 127.0.0.1:50001` before the
+sidecar is listening:
+
+```text
+WORKFLOW_STARTUP_TIMEOUT_MS=60000
+WORKFLOW_STARTUP_RETRY_MS=1000
+```
 
 Point the example at a different existing Redpanda/Kafka broker when needed:
 
