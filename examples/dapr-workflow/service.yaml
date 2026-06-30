@@ -1,0 +1,49 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: dapr-workflow
+  namespace: ${NAMESPACE}
+  annotations:
+    networking.knative.dev/ingress.class: kourier.ingress.networking.knative.dev
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/min-scale: "1"
+        dapr.io/enabled: "true"
+        dapr.io/app-id: "dapr-workflow"
+        dapr.io/app-port: "3000"
+        dapr.io/config: "dapr-workflow-config"
+        dapr.io/metrics-port: "9092"
+    spec:
+      containers:
+        - image: ${IMAGE}
+          imagePullPolicy: ${IMAGE_PULL_POLICY}
+          env:
+            - name: PUBSUB_NAME
+              value: pubsub
+            - name: NOTIFICATIONS_TOPIC
+              value: order-notifications
+            - name: OTEL_SERVICE_NAME
+              value: dapr-workflow
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://alloy.observability.svc.cluster.local:4318
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: http/protobuf
+            - name: OTEL_METRIC_EXPORT_INTERVAL
+              value: "5000"
+          ports:
+            - containerPort: 3000
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsGroup: 1000
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          readinessProbe:
+            httpGet:
+              path: /healthz

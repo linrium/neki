@@ -9,7 +9,7 @@ Based on the official Redis Operator docs:
 - https://redis-operator.opstree.dev/docs/getting-started/standalone/
 
 ```bash
-./infra/redis-operator/install.sh
+./infra/redis/install.sh
 ```
 
 The installer follows the official Helm path:
