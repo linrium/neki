@@ -1,0 +1,48 @@
+type: postgresql
+mode: standalone
+
+version:
+  postgresql: "16"
+
+cluster:
+  instances: 3
+  storage:
+    size: 8Gi
+    storageClass: ""
+  walStorage:
+    enabled: false
+    size: 1Gi
+    storageClass: ""
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  monitoring:
+    enabled: true
+    podMonitor:
+      enabled: true
+    prometheusRule:
+      enabled: true
+  postgresql:
+    parameters:
+      max_connections: "200"
+      shared_buffers: 256MB
+  initdb:
+    database: app
+    owner: app
+
+backups:
+  enabled: false
+  provider: s3
+  retentionPolicy: 30d
+  scheduledBackups:
+    - name: daily-backup
+      schedule: "0 0 0 * * *"
+      backupOwnerReference: self
+      method: barmanObjectStore
+
+poolers: []
+databases: []
