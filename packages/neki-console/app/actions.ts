@@ -175,6 +175,32 @@ export type PostgresProvisionResult = {
   error: string
 }
 
+export type ServicePostgresCluster = {
+  name: string
+  namespace: string
+  linkedToService: boolean
+  managedByConsole: boolean
+  phase: string
+  ready: boolean
+  instances: string
+  readyInstances: string
+  primary: string
+  database: string
+  owner: string
+  storage: string
+  image: string
+  bootstrapSecret: string
+  vaultComponent: string
+  vaultPath: string
+  age: string
+}
+
+export type ServicePostgresClusters = {
+  lastSyncedAt: string
+  clusters: ServicePostgresCluster[]
+  errors: string[]
+}
+
 export type SecretReadResult = {
   ok: boolean
   title: string
@@ -480,6 +506,41 @@ export async function loadServiceSecrets(
       message: "The secret values could not be loaded.",
       ...resultBase,
       error: getErrorMessage(error),
+    }
+  }
+}
+
+export async function getServicePostgresClusters(
+  namespace: string,
+  serviceName: string,
+): Promise<ServicePostgresClusters> {
+  const lastSyncedAt = new Date().toISOString()
+
+  try {
+    validateKubernetesName(namespace, "Namespace")
+    validateKubernetesName(serviceName, "Service name")
+
+    const { customObjectsApi } = getClusterClient()
+    const response = (await customObjectsApi.listNamespacedCustomObject({
+      group: "postgresql.cnpg.io",
+      version: "v1",
+      namespace,
+      plural: "clusters",
+      timeoutSeconds: 8,
+    })) as CustomObjectList
+
+    return {
+      lastSyncedAt,
+      clusters: (response.items ?? [])
+        .map((item) => toServicePostgresCluster(item, serviceName))
+        .sort(sortServicePostgresClusters),
+      errors: [],
+    }
+  } catch (error) {
+    return {
+      lastSyncedAt,
+      clusters: [],
+      errors: [`CloudNativePG clusters: ${getErrorMessage(error)}`],
     }
   }
 }
@@ -975,6 +1036,57 @@ function toServiceContainers(containers: unknown): ServiceContainer[] {
       env: toContainerEnv(record?.env),
     }
   })
+}
+
+function toServicePostgresCluster(
+  item: KubernetesCustomObject,
+  serviceName: string,
+): ServicePostgresCluster {
+  const metadata = item.metadata ?? {}
+  const labels = metadata.labels ?? {}
+  const annotations = metadata.annotations ?? {}
+  const spec = getRecord(item.spec)
+  const status = getRecord(item.status)
+  const bootstrap = getRecord(spec?.bootstrap)
+  const initdb = getRecord(bootstrap?.initdb)
+  const secret = getRecord(initdb?.secret)
+  const readyCondition = getCondition(status?.conditions, "Ready")
+  const linkedToService = labels["app.kubernetes.io/part-of"] === serviceName
+
+  return {
+    name: metadata.name ?? EMPTY_VALUE,
+    namespace: metadata.namespace ?? EMPTY_VALUE,
+    linkedToService,
+    managedByConsole: labels["app.kubernetes.io/managed-by"] === "neki-console",
+    phase:
+      getString(status?.phase) ||
+      readyCondition?.reason ||
+      readyCondition?.message ||
+      EMPTY_VALUE,
+    ready: readyCondition?.status === "True",
+    instances: formatValue(spec?.instances),
+    readyInstances: formatValue(status?.readyInstances),
+    primary: getString(status?.currentPrimary) || EMPTY_VALUE,
+    database: getString(initdb?.database) || EMPTY_VALUE,
+    owner: getString(initdb?.owner) || EMPTY_VALUE,
+    storage: getString(getRecord(spec?.storage)?.size) || EMPTY_VALUE,
+    image: getString(spec?.imageName) || EMPTY_VALUE,
+    bootstrapSecret: getString(secret?.name) || EMPTY_VALUE,
+    vaultComponent: annotations["neki.dev/dapr-vault-component"] || EMPTY_VALUE,
+    vaultPath: annotations["neki.dev/dapr-vault-path"] || EMPTY_VALUE,
+    age: metadata.creationTimestamp ?? "",
+  }
+}
+
+function sortServicePostgresClusters(
+  left: ServicePostgresCluster,
+  right: ServicePostgresCluster,
+) {
+  if (left.linkedToService !== right.linkedToService) {
+    return left.linkedToService ? -1 : 1
+  }
+
+  return right.age.localeCompare(left.age)
 }
 
 function toContainerPorts(ports: unknown): string[] {

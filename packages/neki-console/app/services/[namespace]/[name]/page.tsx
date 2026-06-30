@@ -3,6 +3,7 @@ import {
   IconBox,
   IconClock,
   IconCode,
+  IconDatabase,
   IconGitBranch,
   IconInfoCircle,
   IconTag,
@@ -11,6 +12,7 @@ import type { ComponentType, ReactNode } from "react"
 import {
   type DaprResource,
   getServiceDetail,
+  getServicePostgresClusters,
   type ServiceCondition,
   type ServiceContainer,
   type ServiceRevision,
@@ -32,7 +34,10 @@ type ServicePageProps = {
 
 export default async function ServicePage({ params }: ServicePageProps) {
   const { namespace, name } = await params
-  const detail = await getServiceDetail(namespace, name)
+  const [detail, postgres] = await Promise.all([
+    getServiceDetail(namespace, name),
+    getServicePostgresClusters(namespace, name),
+  ])
   const service = detail.service
 
   if (!service) {
@@ -58,6 +63,7 @@ export default async function ServicePage({ params }: ServicePageProps) {
       <ServiceComponentFlow
         containers={detail.containers}
         daprResources={detail.relatedDaprResources}
+        postgresClusters={postgres.clusters}
         revisions={detail.revisions}
         service={service}
         trafficTargets={detail.trafficTargets}
@@ -83,6 +89,14 @@ export default async function ServicePage({ params }: ServicePageProps) {
           icon={IconClock}
           label="Age"
           value={formatAge(service.age)}
+        />
+        <MetricTile
+          icon={IconDatabase}
+          label="Postgres"
+          value={String(
+            postgres.clusters.filter((cluster) => cluster.linkedToService)
+              .length,
+          )}
         />
       </section>
 

@@ -4,6 +4,7 @@ import {
   IconBolt,
   IconBox,
   IconCloud,
+  IconDatabase,
   IconGitBranch,
   IconRoute,
 } from "@tabler/icons-react"
@@ -60,6 +61,19 @@ type FlowDaprResource = {
   target: string
 }
 
+type FlowPostgresCluster = {
+  name: string
+  linkedToService: boolean
+  ready: boolean
+  phase: string
+  instances: string
+  readyInstances: string
+  primary: string
+  database: string
+  owner: string
+  storage: string
+}
+
 type FlowTrafficTarget = {
   label: string
   percent: string
@@ -72,6 +86,7 @@ type ServiceComponentFlowProps = {
   revisions: FlowRevision[]
   containers: FlowContainer[]
   daprResources: FlowDaprResource[]
+  postgresClusters: FlowPostgresCluster[]
   trafficTargets: FlowTrafficTarget[]
 }
 
@@ -81,13 +96,14 @@ type ComponentNodeData = {
   description: string
   status?: string
   tone: "blue" | "emerald" | "amber" | "violet" | "zinc"
-  icon: "route" | "service" | "revision" | "container" | "dapr"
+  icon: "route" | "service" | "revision" | "container" | "dapr" | "database"
   metrics: Array<{ label: string; value: string }>
 }
 
 type ComponentNode = Node<ComponentNodeData, "component">
 
 const PRIMARY_ROW_Y = 150
+const NODE_VERTICAL_GAP = 210
 
 const nodeTypes = {
   component: ComponentNodeCard,
@@ -98,6 +114,7 @@ export function ServiceComponentFlow({
   revisions,
   containers,
   daprResources,
+  postgresClusters,
   trafficTargets,
 }: ServiceComponentFlowProps) {
   const { nodes, edges } = useMemo(
@@ -107,9 +124,17 @@ export function ServiceComponentFlow({
         revisions,
         containers,
         daprResources,
+        postgresClusters,
         trafficTargets,
       }),
-    [service, revisions, containers, daprResources, trafficTargets],
+    [
+      service,
+      revisions,
+      containers,
+      daprResources,
+      postgresClusters,
+      trafficTargets,
+    ],
   )
 
   return (
@@ -154,11 +179,16 @@ function buildGraph({
   revisions,
   containers,
   daprResources,
+  postgresClusters,
   trafficTargets,
 }: ServiceComponentFlowProps): { nodes: ComponentNode[]; edges: Edge[] } {
   const routedRevisions = revisions.filter(hasRoutedTraffic)
   const visibleContainers = containers.slice(0, 4)
   const visibleDaprResources = daprResources.slice(0, 4)
+  const servicePostgresClusters = postgresClusters.filter(
+    (cluster) => cluster.linkedToService,
+  )
+  const visiblePostgresClusters = servicePostgresClusters.slice(0, 3)
   const revisionStartY =
     routedRevisions.length > 0
       ? Math.max(35, PRIMARY_ROW_Y - (routedRevisions.length - 1) * 85)
@@ -167,6 +197,7 @@ function buildGraph({
     routedRevisions.length > 0
       ? revisionStartY + (routedRevisions.length - 1) * 170 + 180
       : 350
+  const postgresStartY = revisionStartY - NODE_VERTICAL_GAP
   const daprResourceStartY = Math.max(430, routedRevisionBottomY + 50)
   const nodes: ComponentNode[] = [
     createNode({
@@ -305,7 +336,7 @@ function buildGraph({
         id: "container-overflow",
         position: {
           x: 1210,
-          y: PRIMARY_ROW_Y + visibleContainers.length * 150,
+          y: PRIMARY_ROW_Y + visibleContainers.length * 140,
         },
         data: {
           eyebrow: "Container",
@@ -348,6 +379,65 @@ function buildGraph({
         animated: service.daprEnabled,
       }),
     )
+  }
+
+  visiblePostgresClusters.forEach((cluster, index) => {
+    const clusterId = `postgres-${cluster.name}`
+    nodes.push(
+      createNode({
+        id: clusterId,
+        position: {
+          x: 725,
+          y: postgresStartY * 2,
+        },
+        data: {
+          eyebrow: "Postgres",
+          title: cluster.name,
+          description:
+            cluster.primary !== "n/a"
+              ? `Primary ${cluster.primary}`
+              : "CloudNativePG cluster",
+          status: cluster.ready ? "Ready" : cluster.phase,
+          tone: cluster.ready ? "emerald" : "amber",
+          icon: "database",
+          metrics: [
+            { label: "Database", value: cluster.database },
+            {
+              label: "Instances",
+              value: `${cluster.readyInstances}/${cluster.instances}`,
+            },
+            { label: "Storage", value: cluster.storage },
+          ],
+        },
+      }),
+    )
+    edges.push(
+      createEdge("service", clusterId, `edge-postgres-${cluster.name}`, {
+        animated: cluster.ready,
+      }),
+    )
+  })
+
+  if (servicePostgresClusters.length > visiblePostgresClusters.length) {
+    nodes.push(
+      createNode({
+        id: "postgres-overflow",
+        position: {
+          x: 790,
+          y: postgresStartY - visiblePostgresClusters.length * 155,
+        },
+        data: {
+          eyebrow: "Postgres",
+          title: `+${servicePostgresClusters.length - visiblePostgresClusters.length} more`,
+          description:
+            "Additional linked Postgres clusters are listed on the Postgres tab.",
+          tone: "zinc",
+          icon: "database",
+          metrics: [],
+        },
+      }),
+    )
+    edges.push(createEdge("service", "postgres-overflow", "edge-postgres-more"))
   }
 
   visibleDaprResources.forEach((resource, index) => {
@@ -565,6 +655,9 @@ function getNodeIcon(icon: ComponentNodeData["icon"]) {
   }
   if (icon === "dapr") {
     return IconBolt
+  }
+  if (icon === "database") {
+    return IconDatabase
   }
 
   return IconCloud
