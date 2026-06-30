@@ -25,6 +25,7 @@ if [[ "${DELETE_CLUSTER}" == "true" ]]; then
   kubectl delete topics --namespace "${REDPANDA_NAMESPACE}" --all --ignore-not-found
   kubectl delete schemas --namespace "${REDPANDA_NAMESPACE}" --all --ignore-not-found
   kubectl delete redpanda --namespace "${REDPANDA_NAMESPACE}" --all --ignore-not-found
+  kubectl delete console --namespace "${REDPANDA_NAMESPACE}" --all --ignore-not-found
 fi
 
 echo "Uninstalling Redpanda Operator"
