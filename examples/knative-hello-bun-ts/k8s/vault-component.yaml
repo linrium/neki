@@ -1,0 +1,24 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: vault
+spec:
+  type: secretstores.hashicorp.vault
+  version: v1
+  metadata:
+    - name: vaultAddr
+      value: http://vault.vault.svc.cluster.local:8200
+    - name: vaultToken
+      secretKeyRef:
+        name: vault-token
+        key: token
+    - name: vaultKVPrefix
+      value: dapr
+    - name: vaultKVUsePrefix
+      value: "true"
+    - name: enginePath
+      value: secret
+    - name: vaultValueType
+      value: map
+auth:
+  secretStore: kubernetes

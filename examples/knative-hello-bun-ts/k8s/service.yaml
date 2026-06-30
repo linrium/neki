@@ -2,7 +2,7 @@ apiVersion: serving.knative.dev/v1
 kind: Service
 metadata:
   name: hello-bun-ts
-  namespace: default
+  namespace: ${NAMESPACE}
   annotations:
     networking.knative.dev/ingress.class: kourier.ingress.networking.knative.dev
 spec:
@@ -10,6 +10,11 @@ spec:
     metadata:
       annotations:
         autoscaling.knative.dev/min-scale: "0"
+        dapr.io/app-id: hello-bun-ts
+        dapr.io/app-port: "3000"
+        dapr.io/config: hello-bun-ts-config
+        dapr.io/enabled: "true"
+        dapr.io/metrics-port: "9091"
     spec:
       containers:
         - image: ${IMAGE}
@@ -23,6 +28,10 @@ spec:
               value: http/protobuf
             - name: OTEL_METRIC_EXPORT_INTERVAL
               value: "5000"
+            - name: DAPR_SECRET_STORE
+              value: vault
+            - name: DAPR_SECRET_NAME
+              value: hello-bun-ts
           ports:
             - containerPort: 3000
           securityContext:

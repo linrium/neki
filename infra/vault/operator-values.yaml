@@ -1,0 +1,36 @@
+# Helm values for HashiCorp Vault Secrets Operator.
+# Chart: hashicorp/vault-secrets-operator
+
+controller:
+  replicas: 1
+  manager:
+    logging:
+      level: info
+    clientCache:
+      persistenceModel: none
+    resources:
+      limits:
+        cpu: 500m
+        memory: 128Mi
+      requests:
+        cpu: 10m
+        memory: 64Mi
+  kubeRbacProxy:
+    resources:
+      limits:
+        cpu: 500m
+        memory: 128Mi
+      requests:
+        cpu: 5m
+        memory: 64Mi
+
+defaultVaultConnection:
+  enabled: false
+
+defaultAuthMethod:
+  enabled: false
+
+telemetry:
+  serviceMonitor:
+    enabled: false
+

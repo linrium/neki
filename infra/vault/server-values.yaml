@@ -1,0 +1,17 @@
+# Local development Vault server values.
+# Chart: hashicorp/vault
+#
+# Dev mode is initialized and unsealed automatically. Do not use this for
+# production or persistent secrets.
+
+injector:
+  enabled: false
+
+server:
+  dev:
+    enabled: true
+    devRootToken: root
+
+ui:
+  enabled: true
+

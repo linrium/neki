@@ -2,10 +2,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+K8S_DIR="${SCRIPT_DIR}/k8s"
 SERVICE="${SERVICE:-hello-bun-ts}"
 NAMESPACE="${NAMESPACE:-default}"
 TIMEOUT="${TIMEOUT:-180s}"
 IMAGE_REPOSITORY="${IMAGE_REPOSITORY:-dev.local/hello-bun-ts}"
+APPLY_DAPR_VAULT="${APPLY_DAPR_VAULT:-false}"
 
 need() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -20,6 +22,12 @@ random_tag() {
   else
     printf '%s-%s%s\n' "$(date +%s)" "${RANDOM}" "${RANDOM}"
   fi
+}
+
+apply_template() {
+  local file="$1"
+
+  NAMESPACE="${NAMESPACE}" IMAGE="${IMAGE}" envsubst < "${file}" | kubectl apply -f -
 }
 
 IMAGE_TAG="${IMAGE_TAG:-$(random_tag)}"
@@ -46,7 +54,30 @@ kubectl patch configmap config-deployment \
   --patch '{"data":{"registries-skipping-tag-resolving":"dev.local,hello-bun-ts,kind.local,ko.local,local.dev"}}'
 
 echo "Deploying Knative Service ${NAMESPACE}/${SERVICE}"
-IMAGE="${IMAGE}" envsubst < "${SCRIPT_DIR}/service.yaml" | kubectl apply -f -
+echo "Creating namespace ${NAMESPACE}"
+kubectl create namespace "${NAMESPACE}" --dry-run=client --output yaml | kubectl apply -f -
+
+echo "Applying Dapr configuration"
+apply_template "${K8S_DIR}/configuration.yaml"
+
+if [[ "${APPLY_DAPR_VAULT}" == "true" ]]; then
+  if [[ -n "${VAULT_TOKEN:-}" ]]; then
+    echo "Creating Dapr Vault token secret in namespace ${NAMESPACE}"
+    kubectl create secret generic vault-token \
+      --namespace "${NAMESPACE}" \
+      --from-literal "token=${VAULT_TOKEN}" \
+      --dry-run=client \
+      --output yaml | kubectl apply -f -
+  elif ! kubectl get secret vault-token --namespace "${NAMESPACE}" >/dev/null 2>&1; then
+    echo "VAULT_TOKEN is required when APPLY_DAPR_VAULT=true unless ${NAMESPACE}/vault-token already exists" >&2
+    exit 1
+  fi
+
+  echo "Applying Dapr Vault secret store component"
+  apply_template "${K8S_DIR}/vault-component.yaml"
+fi
+
+apply_template "${K8S_DIR}/service.yaml"
 
 echo "Waiting for Knative Service ${NAMESPACE}/${SERVICE}"
 kubectl wait "ksvc/${SERVICE}" \

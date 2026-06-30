@@ -38,6 +38,51 @@ Override the full image if needed:
 IMAGE=dev.local/hello-bun-ts:debug ./deploy.sh
 ```
 
+## Dapr Vault secret
+
+The Knative service is annotated for Dapr sidecar injection and reads a secret
+through Dapr's HashiCorp Vault secret store component.
+
+Initialize the example's Vault setup:
+
+```bash
+export VAULT_ADDR=http://127.0.0.1:8200
+./init-vault.sh
+```
+
+The script enables KV v2 at `secret/` if needed, writes
+`secret/dapr/hello-bun-ts`, creates a read-only policy, and prints a scoped
+Vault token for Dapr. Use the printed token to deploy:
+
+```bash
+VAULT_TOKEN=<printed-token> APPLY_DAPR_VAULT=true ./deploy.sh
+```
+
+Or let the init script write Kubernetes Secret `vault-token` directly:
+
+```bash
+WRITE_K8S_SECRET=true ./init-vault.sh
+APPLY_DAPR_VAULT=true ./deploy.sh
+```
+
+The deploy script creates Kubernetes Secret `vault-token`, applies
+`k8s/configuration.yaml` and `k8s/vault-component.yaml`, then deploys the
+Knative service. On each `/` request the app calls Dapr at
+`/v1.0/secrets/vault/hello-bun-ts`, logs the loaded secret, and returns it in
+the JSON response.
+
+The service sets `dapr.io/metrics-port: "9091"` because Knative's queue-proxy
+can already bind port `9090` in the same pod.
+
+Defaults in `k8s/vault-component.yaml`:
+
+```text
+vaultAddr=http://vault.vault.svc.cluster.local:8200
+enginePath=secret
+vaultKVPrefix=dapr
+vaultValueType=map
+```
+
 If the revision reports `ErrImageNeverPull`, Kubernetes cannot see an image with
 the exact name from the manifest. Re-run `./deploy.sh`; it builds with
 `docker buildx build --load` when available and verifies the image exists locally:
