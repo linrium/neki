@@ -1,7 +1,6 @@
 import {
   IconApi,
   IconCheck,
-  IconPlayerPlay,
   IconRoute,
   IconSend,
   IconTopologyStar,

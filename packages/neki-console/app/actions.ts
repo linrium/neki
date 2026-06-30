@@ -4,6 +4,9 @@ import {
   type Cluster,
   CustomObjectsApi,
   KubeConfig,
+  type KubernetesObject,
+  KubernetesObjectApi,
+  PatchStrategy,
 } from "@kubernetes/client-node"
 import { revalidatePath } from "next/cache"
 
@@ -27,6 +30,12 @@ type KubernetesCustomObject = {
   spec?: Record<string, unknown>
   status?: Record<string, unknown>
   scopes?: string[]
+}
+
+type SecretObject = KubernetesObject & {
+  data?: Record<string, string>
+  stringData?: Record<string, string>
+  type?: string
 }
 
 export type KnativeService = {
@@ -149,6 +158,22 @@ export type PlaygroundResult = {
   error: string
 }
 
+export type PostgresProvisionResult = {
+  ok: boolean
+  title: string
+  message: string
+  clusterName: string
+  database: string
+  username: string
+  vaultComponent: string
+  vaultSecretName: string
+  vaultPath: string
+  cnpgSecretName: string
+  serviceReloadedAt: string
+  steps: Array<{ label: string; detail: string }>
+  error: string
+}
+
 const EMPTY_VALUE = "n/a"
 const DEFAULT_LOG_LIMIT = 200
 const DEFAULT_LOG_WINDOW_MINUTES = 60
@@ -228,6 +253,151 @@ export async function refreshService(namespace: string, name: string) {
   revalidatePath(
     `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/playground`,
   )
+  revalidatePath(
+    `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/postgres`,
+  )
+}
+
+export async function createServicePostgres(
+  namespace: string,
+  serviceName: string,
+  _previousState: PostgresProvisionResult,
+  formData: FormData,
+): Promise<PostgresProvisionResult> {
+  const startedAt = new Date().toISOString()
+  const input = {
+    clusterName:
+      getFormString(formData, "clusterName") || `${serviceName}-postgres`,
+    database: getFormString(formData, "database") || "app",
+    username: getFormString(formData, "username") || "app",
+    instances: getPositiveInteger(getFormString(formData, "instances"), 1),
+    storageSize: getFormString(formData, "storageSize") || "8Gi",
+    postgresVersion: getFormString(formData, "postgresVersion") || "16",
+    vaultComponent: getFormString(formData, "vaultComponent") || "vault",
+    vaultSecretName: getFormString(formData, "vaultSecretName") || serviceName,
+  }
+  const password = generatePassword()
+  const cnpgSecretName = `${input.clusterName}-app`
+  const resultBase = {
+    clusterName: input.clusterName,
+    database: input.database,
+    username: input.username,
+    vaultComponent: input.vaultComponent,
+    vaultSecretName: input.vaultSecretName,
+    vaultPath: "",
+    cnpgSecretName,
+    serviceReloadedAt: startedAt,
+    steps: [],
+  }
+
+  try {
+    validateKubernetesName(namespace, "Namespace")
+    validateKubernetesName(serviceName, "Service name")
+    validateKubernetesName(input.clusterName, "Postgres cluster name")
+    validateKubernetesName(input.vaultComponent, "Dapr Vault component")
+    validateVaultSecretName(input.vaultSecretName)
+    validateIdentifier(input.database, "Database")
+    validateIdentifier(input.username, "Username")
+    validateStorageSize(input.storageSize)
+
+    const { customObjectsApi, objectApi } = getClusterClient()
+    await ensurePostgresClusterIsNew(
+      customObjectsApi,
+      namespace,
+      input.clusterName,
+    )
+
+    const vault = await resolveDaprVault({
+      customObjectsApi,
+      objectApi,
+      namespace,
+      componentName: input.vaultComponent,
+    })
+    const vaultPath = buildVaultKvPath(vault, input.vaultSecretName)
+    const host = `${input.clusterName}-rw.${namespace}.svc.cluster.local`
+    const vaultData = {
+      postgresDatabase: input.database,
+      postgresHost: host,
+      postgresPassword: password,
+      postgresPort: "5432",
+      postgresUsername: input.username,
+    }
+
+    await writeVaultKvSecret(vault, input.vaultSecretName, vaultData)
+    await createOrPatchObject(
+      objectApi,
+      buildPostgresSecret({
+        namespace,
+        name: cnpgSecretName,
+        username: input.username,
+        password,
+        clusterName: input.clusterName,
+        serviceName,
+      }),
+    )
+    await createCustomObject(customObjectsApi, {
+      group: "postgresql.cnpg.io",
+      version: "v1",
+      namespace,
+      plural: "clusters",
+      body: buildPostgresCluster({
+        namespace,
+        clusterName: input.clusterName,
+        database: input.database,
+        username: input.username,
+        secretName: cnpgSecretName,
+        instances: input.instances,
+        storageSize: input.storageSize,
+        postgresVersion: input.postgresVersion,
+        serviceName,
+        vaultComponent: input.vaultComponent,
+        vaultPath,
+      }),
+    })
+    await reloadKnativeService(objectApi, namespace, serviceName, {
+      "neki.dev/postgres-cluster": input.clusterName,
+      "neki.dev/postgres-vault-component": input.vaultComponent,
+      "neki.dev/postgres-vault-secret": input.vaultSecretName,
+      "neki.dev/postgres-reloaded-at": startedAt,
+    })
+    await waitForKnativeServiceReady(customObjectsApi, namespace, serviceName)
+
+    const servicePath = `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(serviceName)}`
+    revalidatePath(servicePath)
+    revalidatePath(`${servicePath}/postgres`)
+
+    return {
+      ok: true,
+      title: "Postgres instance created",
+      message:
+        "CloudNativePG is provisioning the cluster, credentials were saved to Vault, and the Knative service template was reloaded.",
+      ...resultBase,
+      vaultPath,
+      steps: [
+        {
+          label: "Vault",
+          detail: `Wrote credentials to ${vaultPath} through ${input.vaultComponent}.`,
+        },
+        {
+          label: "CloudNativePG",
+          detail: `Created ${namespace}/${input.clusterName} with bootstrap secret ${cnpgSecretName}.`,
+        },
+        {
+          label: "Knative",
+          detail: `Reloaded ${namespace}/${serviceName} and waited for the new template to become ready.`,
+        },
+      ],
+      error: "",
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      title: "Postgres provisioning failed",
+      message: "No Postgres instance was completed.",
+      ...resultBase,
+      error: getErrorMessage(error),
+    }
+  }
 }
 
 export async function getClusterOverview(): Promise<ClusterOverview> {
@@ -402,6 +572,7 @@ function getClusterClient() {
 
   return {
     customObjectsApi: kubeConfig.makeApiClient(CustomObjectsApi),
+    objectApi: KubernetesObjectApi.makeApiClient(kubeConfig),
     currentCluster: kubeConfig.getCurrentCluster(),
     currentContext: kubeConfig.getCurrentContext() || EMPTY_VALUE,
   }
@@ -827,6 +998,466 @@ function getRelatedDaprResources(
   })
 }
 
+type DaprVaultConnection = {
+  address: string
+  enginePath: string
+  prefix: string
+  usePrefix: boolean
+  token: string
+}
+
+async function ensurePostgresClusterIsNew(
+  customObjectsApi: CustomObjectsApi,
+  namespace: string,
+  clusterName: string,
+) {
+  try {
+    await customObjectsApi.getNamespacedCustomObject({
+      group: "postgresql.cnpg.io",
+      version: "v1",
+      namespace,
+      plural: "clusters",
+      name: clusterName,
+    })
+  } catch (error) {
+    if (getErrorStatus(error) === 404) {
+      return
+    }
+    throw error
+  }
+
+  throw new Error(
+    `Postgres cluster ${namespace}/${clusterName} already exists.`,
+  )
+}
+
+async function resolveDaprVault({
+  customObjectsApi,
+  objectApi,
+  namespace,
+  componentName,
+}: {
+  customObjectsApi: CustomObjectsApi
+  objectApi: KubernetesObjectApi
+  namespace: string
+  componentName: string
+}): Promise<DaprVaultConnection> {
+  const component = (await customObjectsApi.getNamespacedCustomObject({
+    group: "dapr.io",
+    version: "v1alpha1",
+    namespace,
+    plural: "components",
+    name: componentName,
+  })) as KubernetesCustomObject
+  const spec = getRecord(component.spec)
+  const type = getString(spec?.type)
+
+  if (type !== "secretstores.hashicorp.vault") {
+    throw new Error(
+      `Dapr component ${namespace}/${componentName} is ${type || "unknown"}, not secretstores.hashicorp.vault.`,
+    )
+  }
+
+  const metadata = getDaprMetadata(spec?.metadata)
+  const tokenRef = metadata.get("vaultToken")?.secretKeyRef
+  if (!tokenRef?.name || !tokenRef.key) {
+    throw new Error(
+      `Dapr Vault component ${namespace}/${componentName} does not reference a vaultToken Kubernetes secret.`,
+    )
+  }
+
+  const tokenSecret = await objectApi.read<SecretObject>({
+    apiVersion: "v1",
+    kind: "Secret",
+    metadata: {
+      name: tokenRef.name,
+      namespace,
+    },
+  })
+  const token = decodeSecretValue(tokenSecret, tokenRef.key)
+  const address = metadata.get("vaultAddr")?.value
+
+  if (!address) {
+    throw new Error(
+      `Dapr Vault component ${namespace}/${componentName} is missing vaultAddr.`,
+    )
+  }
+
+  return {
+    address,
+    enginePath: metadata.get("enginePath")?.value || "secret",
+    prefix: metadata.get("vaultKVPrefix")?.value || "",
+    usePrefix: metadata.get("vaultKVUsePrefix")?.value !== "false",
+    token,
+  }
+}
+
+function getDaprMetadata(value: unknown) {
+  const entries = new Map<
+    string,
+    { value?: string; secretKeyRef?: { name?: string; key?: string } }
+  >()
+
+  if (!Array.isArray(value)) {
+    return entries
+  }
+
+  for (const item of value) {
+    const record = getRecord(item)
+    const name = getString(record?.name)
+    if (!name) {
+      continue
+    }
+
+    entries.set(name, {
+      value: getString(record?.value),
+      secretKeyRef: getRecord(record?.secretKeyRef) as
+        | { name?: string; key?: string }
+        | undefined,
+    })
+  }
+
+  return entries
+}
+
+async function writeVaultKvSecret(
+  vault: DaprVaultConnection,
+  secretName: string,
+  values: Record<string, string>,
+) {
+  const url = new URL(
+    `/v1/${vault.enginePath}/data/${getVaultDataPath(vault, secretName)}`,
+    normalizeBaseUrl(vault.address),
+  )
+  const existing = await readVaultKvSecret(url, vault.token)
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Vault-Token": vault.token,
+    },
+    body: JSON.stringify({
+      data: {
+        ...existing,
+        ...values,
+      },
+    }),
+    cache: "no-store",
+  })
+
+  if (!response.ok) {
+    throw new Error(
+      `Vault write failed for ${url.pathname}: ${response.status} ${response.statusText}`,
+    )
+  }
+}
+
+async function readVaultKvSecret(url: URL, token: string) {
+  const response = await fetch(url, {
+    headers: {
+      "X-Vault-Token": token,
+    },
+    cache: "no-store",
+  })
+
+  if (response.status === 404) {
+    return {}
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `Vault read failed for ${url.pathname}: ${response.status} ${response.statusText}`,
+    )
+  }
+
+  const payload = getRecord(await response.json())
+  return getStringRecord(getRecord(payload?.data)?.data)
+}
+
+function buildVaultKvPath(vault: DaprVaultConnection, secretName: string) {
+  return `${vault.enginePath}/data/${getVaultDataPath(vault, secretName)}`
+}
+
+function getVaultDataPath(vault: DaprVaultConnection, secretName: string) {
+  return [vault.usePrefix ? vault.prefix : "", secretName]
+    .filter(Boolean)
+    .map((part) => part.replace(/^\/+|\/+$/g, ""))
+    .join("/")
+}
+
+function buildPostgresSecret({
+  namespace,
+  name,
+  username,
+  password,
+  clusterName,
+  serviceName,
+}: {
+  namespace: string
+  name: string
+  username: string
+  password: string
+  clusterName: string
+  serviceName: string
+}): SecretObject {
+  return {
+    apiVersion: "v1",
+    kind: "Secret",
+    metadata: {
+      name,
+      namespace,
+      labels: {
+        "app.kubernetes.io/managed-by": "neki-console",
+        "app.kubernetes.io/part-of": serviceName,
+        "cnpg.io/cluster": clusterName,
+      },
+    },
+    type: "kubernetes.io/basic-auth",
+    stringData: {
+      username,
+      password,
+    },
+  }
+}
+
+function buildPostgresCluster({
+  namespace,
+  clusterName,
+  database,
+  username,
+  secretName,
+  instances,
+  storageSize,
+  postgresVersion,
+  serviceName,
+  vaultComponent,
+  vaultPath,
+}: {
+  namespace: string
+  clusterName: string
+  database: string
+  username: string
+  secretName: string
+  instances: number
+  storageSize: string
+  postgresVersion: string
+  serviceName: string
+  vaultComponent: string
+  vaultPath: string
+}): KubernetesCustomObject {
+  return {
+    apiVersion: "postgresql.cnpg.io/v1",
+    kind: "Cluster",
+    metadata: {
+      name: clusterName,
+      namespace,
+      annotations: {
+        "neki.dev/dapr-vault-component": vaultComponent,
+        "neki.dev/dapr-vault-path": vaultPath,
+      },
+      labels: {
+        "app.kubernetes.io/managed-by": "neki-console",
+        "app.kubernetes.io/part-of": serviceName,
+      },
+    },
+    spec: {
+      instances,
+      imageName: `ghcr.io/cloudnative-pg/postgresql:${postgresVersion}`,
+      storage: {
+        size: storageSize,
+      },
+      monitoring: {
+        enablePodMonitor: true,
+      },
+      bootstrap: {
+        initdb: {
+          database,
+          owner: username,
+          secret: {
+            name: secretName,
+          },
+        },
+      },
+      postgresql: {
+        parameters: {
+          max_connections: "200",
+          shared_buffers: "256MB",
+        },
+      },
+      resources: {
+        requests: {
+          cpu: "250m",
+          memory: "512Mi",
+        },
+        limits: {
+          cpu: "1",
+          memory: "1Gi",
+        },
+      },
+    },
+  }
+}
+
+async function createCustomObject(
+  customObjectsApi: CustomObjectsApi,
+  request: {
+    group: string
+    version: string
+    namespace: string
+    plural: string
+    body: KubernetesCustomObject
+  },
+) {
+  await customObjectsApi.createNamespacedCustomObject({
+    ...request,
+    fieldManager: "neki-console",
+  })
+}
+
+async function createOrPatchObject(
+  objectApi: KubernetesObjectApi,
+  object: SecretObject,
+) {
+  try {
+    await objectApi.create(object, undefined, undefined, "neki-console")
+  } catch (error) {
+    if (getErrorStatus(error) !== 409) {
+      throw error
+    }
+
+    await objectApi.patch(
+      object,
+      undefined,
+      undefined,
+      "neki-console",
+      undefined,
+      PatchStrategy.MergePatch,
+    )
+  }
+}
+
+async function reloadKnativeService(
+  objectApi: KubernetesObjectApi,
+  namespace: string,
+  serviceName: string,
+  annotations: Record<string, string>,
+) {
+  await objectApi.patch(
+    {
+      apiVersion: "serving.knative.dev/v1",
+      kind: "Service",
+      metadata: {
+        name: serviceName,
+        namespace,
+      },
+      spec: {
+        template: {
+          metadata: {
+            annotations,
+          },
+        },
+      },
+    },
+    undefined,
+    undefined,
+    "neki-console",
+    undefined,
+    PatchStrategy.MergePatch,
+  )
+}
+
+async function waitForKnativeServiceReady(
+  customObjectsApi: CustomObjectsApi,
+  namespace: string,
+  serviceName: string,
+) {
+  const timeoutAt = Date.now() + 90_000
+
+  while (Date.now() < timeoutAt) {
+    const service = await getNamespacedKnativeService(
+      customObjectsApi,
+      namespace,
+      serviceName,
+    )
+    const generation = service.metadata?.generation
+    const observedGeneration = getNumber(
+      getRecord(service.status)?.observedGeneration,
+    )
+    const readyCondition = getCondition(
+      getRecord(service.status)?.conditions,
+      "Ready",
+    )
+
+    if (
+      readyCondition?.status === "True" &&
+      generation !== undefined &&
+      observedGeneration !== undefined &&
+      observedGeneration >= generation
+    ) {
+      return
+    }
+
+    await sleep(2000)
+  }
+
+  throw new Error(
+    `Knative service ${namespace}/${serviceName} did not become ready after reload.`,
+  )
+}
+
+function sleep(milliseconds: number) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds))
+}
+
+function decodeSecretValue(secret: SecretObject, key: string) {
+  const encoded = secret.data?.[key]
+  if (!encoded) {
+    throw new Error(
+      `Kubernetes secret ${secret.metadata?.name} is missing ${key}.`,
+    )
+  }
+
+  return Buffer.from(encoded, "base64").toString("utf8")
+}
+
+function generatePassword() {
+  const alphabet =
+    "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789_-+=."
+  const bytes = crypto.getRandomValues(new Uint8Array(32))
+
+  return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join("")
+}
+
+function validateKubernetesName(value: string, label: string) {
+  if (!/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(value) || value.length > 63) {
+    throw new Error(
+      `${label} must be a DNS label: lowercase letters, numbers, hyphens, and at most 63 characters.`,
+    )
+  }
+}
+
+function validateVaultSecretName(value: string) {
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,126}[a-zA-Z0-9]$/.test(value)) {
+    throw new Error(
+      "Vault secret name must use letters, numbers, dots, underscores, hyphens, or slashes.",
+    )
+  }
+}
+
+function validateIdentifier(value: string, label: string) {
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]{0,62}$/.test(value)) {
+    throw new Error(
+      `${label} must start with a letter or underscore and only contain letters, numbers, or underscores.`,
+    )
+  }
+}
+
+function validateStorageSize(value: string) {
+  if (!/^[1-9][0-9]*(Mi|Gi|Ti)$/.test(value)) {
+    throw new Error("Storage size must look like 512Mi, 8Gi, or 1Ti.")
+  }
+}
+
 async function fetchLokiQueryRange({
   baseUrl,
   query,
@@ -1104,4 +1735,12 @@ function getErrorMessage(error: unknown) {
   }
 
   return String(error)
+}
+
+function getErrorStatus(error: unknown) {
+  const record = getRecord(error)
+  const response = getRecord(record?.response)
+  const status = record?.statusCode ?? record?.status ?? response?.statusCode
+
+  return typeof status === "number" ? status : undefined
 }

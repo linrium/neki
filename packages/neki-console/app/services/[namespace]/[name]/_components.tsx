@@ -2,6 +2,7 @@ import {
   IconAlertTriangle,
   IconArrowLeft,
   IconCloud,
+  IconDatabase,
   IconExternalLink,
   IconGitBranch,
   IconPlayerPlay,
@@ -16,7 +17,7 @@ import { refreshService, type ServiceDetail } from "@/app/actions"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
-export type ServiceTab = "overview" | "logs" | "playground"
+export type ServiceTab = "overview" | "logs" | "playground" | "postgres"
 
 export function ServicePageFrame({
   activeTab,
@@ -183,6 +184,12 @@ function ServiceTabs({
       label: "Playground",
       href: `${baseHref}/playground`,
       icon: IconPlayerPlay,
+    },
+    {
+      value: "postgres",
+      label: "Postgres",
+      href: `${baseHref}/postgres`,
+      icon: IconDatabase,
     },
   ]
 

@@ -83,6 +83,32 @@ vaultKVPrefix=dapr
 vaultValueType=map
 ```
 
+## Create Postgres from neki-console
+
+Open the neki-console service detail page for `hello-bun-ts`, then choose the
+**Postgres** tab. The form creates a CloudNativePG `Cluster`, lets you choose
+the database username, generates a random password on the server, writes the
+connection fields to the linked Dapr Vault component, and reloads the Knative
+service template so a new pod can read the updated Vault secret through Dapr.
+
+For this example, keep the default Vault secret name `hello-bun-ts`; the app
+already reads that Dapr secret on each `/` request through:
+
+```text
+DAPR_SECRET_STORE=vault
+DAPR_SECRET_NAME=hello-bun-ts
+```
+
+The Vault payload written by the console includes:
+
+```text
+postgresHost
+postgresPort
+postgresDatabase
+postgresUsername
+postgresPassword
+```
+
 If the revision reports `ErrImageNeverPull`, Kubernetes cannot see an image with
 the exact name from the manifest. Re-run `./deploy.sh`; it builds with
 `docker buildx build --load` when available and verifies the image exists locally:
