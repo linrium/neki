@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
 import { formatAge, ServicePageFrame, StatusBadge } from "./_components"
+import { ServiceComponentFlow } from "./service-component-flow"
 
 export const dynamic = "force-dynamic"
 
@@ -54,6 +55,14 @@ export default async function ServicePage({ params }: ServicePageProps) {
       name={name}
       namespace={namespace}
     >
+      <ServiceComponentFlow
+        containers={detail.containers}
+        daprResources={detail.relatedDaprResources}
+        revisions={detail.revisions}
+        service={service}
+        trafficTargets={detail.trafficTargets}
+      />
+
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <MetricTile
           icon={IconGitBranch}
