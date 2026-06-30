@@ -1,0 +1,13 @@
+version = 2
+
+[plugins."io.containerd.grpc.v1.cri".containerd]
+  snapshotter = "devmapper"
+
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.kata-fc]
+  runtime_type = "io.containerd.kata-fc.v2"
+  privileged_without_host_devices = true
+
+[plugins."io.containerd.snapshotter.v1.devmapper"]
+  pool_name = "containerd-pool"
+  root_path = "/var/lib/containerd/io.containerd.snapshotter.v1.devmapper"
+  base_image_size = "10GB"

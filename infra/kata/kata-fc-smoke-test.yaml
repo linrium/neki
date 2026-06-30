@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kata-fc-smoke-test
+  labels:
+    app.kubernetes.io/name: kata-fc-smoke-test
+spec:
+  runtimeClassName: kata-fc
+  restartPolicy: Never
+  containers:
+    - name: uname
+      image: busybox:1.36
+      command:
+        - sh
+        - -c
+        - |
+          echo "runtimeClassName=${KATA_RUNTIME_CLASS:-kata-fc}"
+          uname -a
+          grep -E 'model name|Hardware|processor' /proc/cpuinfo | head -20 || true
+          sleep 5
