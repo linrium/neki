@@ -1,0 +1,304 @@
+{
+  "serviceName": "dapr-workflow",
+  "title": "Order processing workflow",
+  "description": "Static view of the Dapr workflow registered in examples/dapr-workflow/src/server.ts and implemented in src/workflow.ts.",
+  "kind": "Dapr Workflow",
+  "entrypoint": "POST /orders",
+  "sourceFiles": [
+    "examples/dapr-workflow/src/server.ts",
+    "examples/dapr-workflow/src/workflow.ts"
+  ],
+  "nodes": [
+    {
+      "id": "request-order",
+      "position": { "x": 0, "y": 170 },
+      "data": {
+        "eyebrow": "Client request",
+        "title": "Create order",
+        "description": "POST /orders accepts customer, items, and total.",
+        "kind": "request",
+        "tone": "blue",
+        "metrics": [{ "label": "Route", "value": "POST /orders" }]
+      }
+    },
+    {
+      "id": "validate-order",
+      "position": { "x": 350, "y": 170 },
+      "data": {
+        "eyebrow": "Server",
+        "title": "Validate order body",
+        "description": "orderFromBody creates an ID and rejects invalid payloads with 400.",
+        "kind": "server",
+        "tone": "zinc",
+        "metrics": [{ "label": "Input", "value": "Order JSON" }]
+      }
+    },
+    {
+      "id": "schedule-workflow",
+      "position": { "x": 700, "y": 170 },
+      "data": {
+        "eyebrow": "Dapr client",
+        "title": "Schedule workflow",
+        "description": "scheduleNewWorkflow starts order_processing_workflow with the order ID as the instance ID.",
+        "kind": "workflow",
+        "tone": "violet",
+        "status": "202 Accepted",
+        "metrics": [
+          { "label": "Workflow", "value": "order_processing_workflow" },
+          { "label": "Runtime", "value": "Dapr gRPC" }
+        ]
+      }
+    },
+    {
+      "id": "notify-received",
+      "position": { "x": 1050, "y": 170 },
+      "data": {
+        "eyebrow": "Activity",
+        "title": "notify: received",
+        "description": "Publishes an order received notification.",
+        "kind": "activity",
+        "tone": "emerald",
+        "metrics": [{ "label": "Topic", "value": "order-notifications" }]
+      }
+    },
+    {
+      "id": "reserve-inventory",
+      "position": { "x": 1400, "y": 170 },
+      "data": {
+        "eyebrow": "Activity",
+        "title": "reserve_inventory",
+        "description": "Reserves inventory and emits a notification containing the item count.",
+        "kind": "activity",
+        "tone": "emerald",
+        "metrics": [{ "label": "Status", "value": "inventory" }]
+      }
+    },
+    {
+      "id": "approval-check",
+      "position": { "x": 1750, "y": 170 },
+      "data": {
+        "eyebrow": "Decision",
+        "title": "Total >= $1000?",
+        "description": "Large orders wait for manager_approval or a 24 hour timer.",
+        "kind": "decision",
+        "tone": "amber",
+        "metrics": [{ "label": "Threshold", "value": "$1000" }]
+      }
+    },
+    {
+      "id": "approval-wait",
+      "position": { "x": 2100, "y": 20 },
+      "data": {
+        "eyebrow": "External event",
+        "title": "Wait for approval",
+        "description": "whenAny races manager_approval against a 24 hour timeout.",
+        "kind": "event",
+        "tone": "amber",
+        "metrics": [
+          { "label": "Event", "value": "manager_approval" },
+          { "label": "Timer", "value": "24h" }
+        ]
+      }
+    },
+    {
+      "id": "approval-outcome",
+      "position": { "x": 2450, "y": 20 },
+      "data": {
+        "eyebrow": "Decision",
+        "title": "Approved?",
+        "description": "Rejected or timed out orders notify and finish with success=false.",
+        "kind": "decision",
+        "tone": "amber",
+        "metrics": [{ "label": "Failure", "value": "reject / timeout" }]
+      }
+    },
+    {
+      "id": "cancel-order",
+      "position": { "x": 2800, "y": 20 },
+      "data": {
+        "eyebrow": "Terminal",
+        "title": "Cancel order",
+        "description": "Notify cancellation or rejection and return a failed workflow result.",
+        "kind": "terminal",
+        "tone": "zinc",
+        "status": "success=false",
+        "metrics": [{ "label": "Result", "value": "cancelled / rejected" }]
+      }
+    },
+    {
+      "id": "process-payment",
+      "position": { "x": 2100, "y": 320 },
+      "data": {
+        "eyebrow": "Activity",
+        "title": "process_payment",
+        "description": "Processes payment and publishes a payment notification.",
+        "kind": "activity",
+        "tone": "emerald",
+        "metrics": [{ "label": "Status", "value": "payment" }]
+      }
+    },
+    {
+      "id": "ship-order",
+      "position": { "x": 2450, "y": 320 },
+      "data": {
+        "eyebrow": "Activity",
+        "title": "ship_order",
+        "description": "Submits shipping unless SHIPPING_DISABLED=true.",
+        "kind": "activity",
+        "tone": "emerald",
+        "metrics": [{ "label": "Carrier", "value": "demo-express" }]
+      }
+    },
+    {
+      "id": "complete-order",
+      "position": { "x": 2800, "y": 320 },
+      "data": {
+        "eyebrow": "Terminal",
+        "title": "Order complete",
+        "description": "Sets custom status to completed and returns success=true.",
+        "kind": "terminal",
+        "tone": "blue",
+        "status": "success=true",
+        "metrics": [{ "label": "Status", "value": "completed" }]
+      }
+    },
+    {
+      "id": "notifications-topic",
+      "position": { "x": 1400, "y": 520 },
+      "data": {
+        "eyebrow": "Dapr pub/sub",
+        "title": "order-notifications",
+        "description": "Activities publish notifications through the Dapr publish API.",
+        "kind": "pubsub",
+        "tone": "violet",
+        "metrics": [{ "label": "Pubsub", "value": "pubsub" }]
+      }
+    },
+    {
+      "id": "notification-handler",
+      "position": { "x": 1750, "y": 520 },
+      "data": {
+        "eyebrow": "Subscriber",
+        "title": "POST /notifications",
+        "description": "The service subscribes to order-notifications and logs received messages.",
+        "kind": "server",
+        "tone": "zinc",
+        "metrics": [{ "label": "Subscribe", "value": "GET /dapr/subscribe" }]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "order-to-validate",
+      "source": "request-order",
+      "target": "validate-order",
+      "label": "JSON"
+    },
+    {
+      "id": "validate-to-schedule",
+      "source": "validate-order",
+      "target": "schedule-workflow",
+      "label": "valid order",
+      "animated": true
+    },
+    {
+      "id": "schedule-to-notify",
+      "source": "schedule-workflow",
+      "target": "notify-received",
+      "label": "start",
+      "animated": true
+    },
+    {
+      "id": "notify-to-reserve",
+      "source": "notify-received",
+      "target": "reserve-inventory",
+      "label": "received"
+    },
+    {
+      "id": "reserve-to-check",
+      "source": "reserve-inventory",
+      "target": "approval-check",
+      "label": "reserved"
+    },
+    {
+      "id": "check-to-wait",
+      "source": "approval-check",
+      "target": "approval-wait",
+      "label": "yes"
+    },
+    {
+      "id": "wait-to-outcome",
+      "source": "approval-wait",
+      "target": "approval-outcome",
+      "label": "event or timeout"
+    },
+    {
+      "id": "outcome-to-cancel",
+      "source": "approval-outcome",
+      "target": "cancel-order",
+      "label": "no / timeout",
+      "tone": "amber"
+    },
+    {
+      "id": "check-to-payment",
+      "source": "approval-check",
+      "target": "process-payment",
+      "label": "no"
+    },
+    {
+      "id": "approved-to-payment",
+      "source": "approval-outcome",
+      "target": "process-payment",
+      "label": "approved",
+      "animated": true
+    },
+    {
+      "id": "payment-to-ship",
+      "source": "process-payment",
+      "target": "ship-order",
+      "label": "paid"
+    },
+    {
+      "id": "ship-to-complete",
+      "source": "ship-order",
+      "target": "complete-order",
+      "label": "shipped",
+      "animated": true
+    },
+    {
+      "id": "notify-to-topic",
+      "source": "notify-received",
+      "target": "notifications-topic",
+      "label": "publish",
+      "tone": "violet"
+    },
+    {
+      "id": "reserve-to-topic",
+      "source": "reserve-inventory",
+      "target": "notifications-topic",
+      "label": "publish",
+      "tone": "violet"
+    },
+    {
+      "id": "payment-to-topic",
+      "source": "process-payment",
+      "target": "notifications-topic",
+      "label": "publish",
+      "tone": "violet"
+    },
+    {
+      "id": "ship-to-topic",
+      "source": "ship-order",
+      "target": "notifications-topic",
+      "label": "publish",
+      "tone": "violet"
+    },
+    {
+      "id": "topic-to-handler",
+      "source": "notifications-topic",
+      "target": "notification-handler",
+      "label": "deliver",
+      "tone": "violet"
+    }
+  ]
+}

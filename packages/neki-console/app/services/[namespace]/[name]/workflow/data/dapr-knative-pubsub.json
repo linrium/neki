@@ -1,0 +1,237 @@
+{
+  "serviceName": "dapr-knative-pubsub",
+  "title": "Inventory pub/sub routing",
+  "description": "Static view of the publish and route handlers defined in examples/dapr-knative-pubsub/src/server.ts.",
+  "kind": "Dapr Pub/Sub",
+  "entrypoint": "POST /publish",
+  "sourceFiles": ["examples/dapr-knative-pubsub/src/server.ts"],
+  "nodes": [
+    {
+      "id": "publish-request",
+      "position": { "x": 0, "y": 210 },
+      "data": {
+        "eyebrow": "Client request",
+        "title": "Publish inventory message",
+        "description": "POST /publish accepts an InventoryMessage JSON payload.",
+        "kind": "request",
+        "tone": "blue",
+        "metrics": [{ "label": "Route", "value": "POST /publish" }]
+      }
+    },
+    {
+      "id": "read-json",
+      "position": { "x": 350, "y": 210 },
+      "data": {
+        "eyebrow": "Server",
+        "title": "Read JSON body",
+        "description": "Invalid or missing JSON returns 400 Expected JSON body.",
+        "kind": "server",
+        "tone": "zinc",
+        "metrics": [{ "label": "Type", "value": "InventoryMessage" }]
+      }
+    },
+    {
+      "id": "dapr-publish",
+      "position": { "x": 700, "y": 210 },
+      "data": {
+        "eyebrow": "Dapr HTTP API",
+        "title": "Publish to topic",
+        "description": "fetch sends application/cloudevents+json to /v1.0/publish/{pubsub}/{topic}.",
+        "kind": "pubsub",
+        "tone": "violet",
+        "metrics": [
+          { "label": "Pubsub", "value": "pubsub" },
+          { "label": "Topic", "value": "inventory" }
+        ]
+      }
+    },
+    {
+      "id": "publish-error",
+      "position": { "x": 1050, "y": 20 },
+      "data": {
+        "eyebrow": "Error path",
+        "title": "Dapr publish failed",
+        "description": "Non-2xx Dapr responses are logged and returned as 502.",
+        "kind": "terminal",
+        "tone": "amber",
+        "status": "502",
+        "metrics": [{ "label": "Log", "value": "Publish failed" }]
+      }
+    },
+    {
+      "id": "publish-ok",
+      "position": { "x": 1050, "y": 210 },
+      "data": {
+        "eyebrow": "Response",
+        "title": "Publish accepted",
+        "description": "The service logs PUBLISHED and returns OK.",
+        "kind": "terminal",
+        "tone": "emerald",
+        "status": "200",
+        "metrics": [{ "label": "Body", "value": "OK" }]
+      }
+    },
+    {
+      "id": "inventory-topic",
+      "position": { "x": 1400, "y": 210 },
+      "data": {
+        "eyebrow": "Topic",
+        "title": "inventory",
+        "description": "Messages fan out through the configured pub/sub subscription routes.",
+        "kind": "pubsub",
+        "tone": "violet",
+        "metrics": [{ "label": "Destination", "value": "inventory" }]
+      }
+    },
+    {
+      "id": "route-widget",
+      "position": { "x": 1750, "y": 20 },
+      "data": {
+        "eyebrow": "Route",
+        "title": "Widget messages",
+        "description": "Messages with type=widget are delivered to POST /widgets.",
+        "kind": "route",
+        "tone": "blue",
+        "metrics": [{ "label": "Path", "value": "/widgets" }]
+      }
+    },
+    {
+      "id": "route-gadget",
+      "position": { "x": 1750, "y": 210 },
+      "data": {
+        "eyebrow": "Route",
+        "title": "Gadget messages",
+        "description": "Messages with type=gadget are delivered to POST /gadgets.",
+        "kind": "route",
+        "tone": "blue",
+        "metrics": [{ "label": "Path", "value": "/gadgets" }]
+      }
+    },
+    {
+      "id": "route-product",
+      "position": { "x": 1750, "y": 400 },
+      "data": {
+        "eyebrow": "Route",
+        "title": "Default products",
+        "description": "Fallback product messages are delivered to POST /products.",
+        "kind": "route",
+        "tone": "blue",
+        "metrics": [{ "label": "Path", "value": "/products" }]
+      }
+    },
+    {
+      "id": "handler-widget",
+      "position": { "x": 2100, "y": 20 },
+      "data": {
+        "eyebrow": "Handler",
+        "title": "WIDGET log",
+        "description": "logRoutedMessage records the widget payload and returns OK.",
+        "kind": "server",
+        "tone": "emerald",
+        "status": "200",
+        "metrics": [{ "label": "Log", "value": "WIDGET" }]
+      }
+    },
+    {
+      "id": "handler-gadget",
+      "position": { "x": 2100, "y": 210 },
+      "data": {
+        "eyebrow": "Handler",
+        "title": "GADGET log",
+        "description": "logRoutedMessage records the gadget payload and returns OK.",
+        "kind": "server",
+        "tone": "emerald",
+        "status": "200",
+        "metrics": [{ "label": "Log", "value": "GADGET" }]
+      }
+    },
+    {
+      "id": "handler-product",
+      "position": { "x": 2100, "y": 400 },
+      "data": {
+        "eyebrow": "Handler",
+        "title": "PRODUCT default log",
+        "description": "logRoutedMessage records the fallback product payload and returns OK.",
+        "kind": "server",
+        "tone": "emerald",
+        "status": "200",
+        "metrics": [{ "label": "Log", "value": "PRODUCT default" }]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "request-to-read",
+      "source": "publish-request",
+      "target": "read-json",
+      "label": "JSON"
+    },
+    {
+      "id": "read-to-dapr",
+      "source": "read-json",
+      "target": "dapr-publish",
+      "label": "valid body",
+      "animated": true
+    },
+    {
+      "id": "dapr-to-error",
+      "source": "dapr-publish",
+      "target": "publish-error",
+      "label": "!ok",
+      "tone": "amber"
+    },
+    {
+      "id": "dapr-to-ok",
+      "source": "dapr-publish",
+      "target": "publish-ok",
+      "label": "ok",
+      "animated": true
+    },
+    {
+      "id": "ok-to-topic",
+      "source": "publish-ok",
+      "target": "inventory-topic",
+      "label": "message on topic",
+      "tone": "violet"
+    },
+    {
+      "id": "topic-to-widget",
+      "source": "inventory-topic",
+      "target": "route-widget",
+      "label": "type=widget",
+      "tone": "violet"
+    },
+    {
+      "id": "topic-to-gadget",
+      "source": "inventory-topic",
+      "target": "route-gadget",
+      "label": "type=gadget",
+      "tone": "violet"
+    },
+    {
+      "id": "topic-to-product",
+      "source": "inventory-topic",
+      "target": "route-product",
+      "label": "default",
+      "tone": "violet"
+    },
+    {
+      "id": "widget-to-handler",
+      "source": "route-widget",
+      "target": "handler-widget",
+      "label": "POST /widgets"
+    },
+    {
+      "id": "gadget-to-handler",
+      "source": "route-gadget",
+      "target": "handler-gadget",
+      "label": "POST /gadgets"
+    },
+    {
+      "id": "product-to-handler",
+      "source": "route-product",
+      "target": "handler-product",
+      "label": "POST /products"
+    }
+  ]
+}

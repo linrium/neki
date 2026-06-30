@@ -381,7 +381,7 @@ function buildGraph({
     )
   }
 
-  visiblePostgresClusters.forEach((cluster, index) => {
+  visiblePostgresClusters.forEach((cluster) => {
     const clusterId = `postgres-${cluster.name}`
     nodes.push(
       createNode({

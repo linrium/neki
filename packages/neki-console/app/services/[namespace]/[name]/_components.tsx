@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils"
 
 export type ServiceTab =
   | "overview"
+  | "workflow"
   | "logs"
   | "playground"
   | "postgres"
@@ -179,6 +180,12 @@ function ServiceTabs({
     icon: ComponentType<{ className?: string }>
   }> = [
     { value: "overview", label: "Overview", href: baseHref, icon: IconCloud },
+    {
+      value: "workflow",
+      label: "Workflow",
+      href: `${baseHref}/workflow`,
+      icon: IconGitBranch,
+    },
     {
       value: "logs",
       label: "Logs",
