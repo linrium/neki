@@ -1,0 +1,62 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: knative-serving-control-plane
+  namespace: observability
+  labels:
+    release: prometheus
+spec:
+  namespaceSelector:
+    matchNames:
+      - knative-serving
+  selector:
+    matchExpressions:
+      - key: app
+        operator: Exists
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics
+      honorLabels: true
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: knative-eventing-control-plane
+  namespace: observability
+  labels:
+    release: prometheus
+spec:
+  namespaceSelector:
+    matchNames:
+      - knative-eventing
+  selector:
+    matchExpressions:
+      - key: app
+        operator: Exists
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics
+      honorLabels: true
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: dapr-control-plane
+  namespace: observability
+  labels:
+    release: prometheus
+spec:
+  namespaceSelector:
+    matchNames:
+      - dapr-system
+  selector:
+    matchExpressions:
+      - key: app
+        operator: Exists
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /metrics
+      honorLabels: true

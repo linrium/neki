@@ -1,0 +1,31 @@
+tempo:
+  reportingEnabled: false
+  retention: 24h
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+  storage:
+    trace:
+      backend: local
+      local:
+        path: /var/tempo/traces
+
+persistence:
+  enabled: false
+
+service:
+  type: ClusterIP
+
+tempoQuery:
+  enabled: false
+
+traces:
+  otlp:
+    grpc:
+      enabled: true
+    http:
+      enabled: true

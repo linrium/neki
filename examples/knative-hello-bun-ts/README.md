@@ -66,3 +66,34 @@ Use the host from the Knative Service URL:
 HOST=$(kubectl get ksvc hello-bun-ts -n default -o jsonpath='{.status.url}' | sed 's#http://##')
 curl -H "Host: ${HOST}" http://localhost:8080/
 ```
+
+## Observability
+
+The service uses the OpenTelemetry SDK to export logs, metrics, and traces to
+Alloy over OTLP HTTP:
+
+```text
+http://alloy.observability.svc.cluster.local:4318
+```
+
+The Knative template sets:
+
+```text
+OTEL_SERVICE_NAME=hello-bun-ts
+OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy.observability.svc.cluster.local:4318
+OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+OTEL_METRIC_EXPORT_INTERVAL=5000
+```
+
+After invoking the service, check:
+
+```bash
+kubectl logs -n default -l serving.knative.dev/service=hello-bun-ts -c user-container
+kubectl port-forward --namespace observability svc/prometheus-grafana 3000:80
+```
+
+In Grafana:
+
+- Loki: query `{knative_service="hello-bun-ts"}`
+- Prometheus: query `http_server_request_count_total{service_name="hello-bun-ts"}`
+- Tempo: search for service `hello-bun-ts`

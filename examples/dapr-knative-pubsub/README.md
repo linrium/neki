@@ -111,6 +111,48 @@ kubectl logs -n default -l serving.knative.dev/service=dapr-knative-pubsub -c us
 
 You should see `WIDGET`, `GADGET`, and `PRODUCT default` log lines.
 
+## Observability
+
+The app uses the OpenTelemetry SDK to export logs, metrics, and traces to Alloy
+over OTLP HTTP:
+
+```text
+http://alloy.observability.svc.cluster.local:4318
+```
+
+The Knative template sets:
+
+```text
+OTEL_SERVICE_NAME=dapr-knative-pubsub
+OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy.observability.svc.cluster.local:4318
+OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+OTEL_METRIC_EXPORT_INTERVAL=5000
+```
+
+The Dapr `Configuration` also sends Dapr sidecar traces to Alloy over OTLP gRPC:
+
+```yaml
+tracing:
+  samplingRate: "1"
+  otel:
+    endpointAddress: alloy.observability.svc.cluster.local:4317
+    isSecure: false
+    protocol: grpc
+```
+
+After publishing messages, check:
+
+```bash
+kubectl logs -n default -l serving.knative.dev/service=dapr-knative-pubsub -c user-container
+kubectl port-forward --namespace observability svc/prometheus-grafana 3000:80
+```
+
+In Grafana:
+
+- Loki: query `{knative_service="dapr-knative-pubsub"}`
+- Prometheus: query `http_server_request_count_total{service_name="dapr-knative-pubsub"}`
+- Tempo: search for service `dapr-knative-pubsub`
+
 ## Files
 
 - `src/server.ts`: Bun HTTP service and publish endpoint
