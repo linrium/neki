@@ -21,6 +21,7 @@ Default local-dev shape:
 - standalone mode, one pod, one data PVC
 - service endpoint `http://rustfs-svc.rustfs.svc.cluster.local:9000`
 - bucket `neon`
+- worker artifact bucket `workers`
 - Neon secret `neon/bucket-credentials`
 
 ## Install And Integrate With Neon
@@ -33,7 +34,8 @@ This will:
 
 1. install RustFS with Helm
 2. create the `neon` bucket using a short `minio/mc` Job
-3. create or update Neon’s `bucket-credentials` Secret
+3. create the `workers` bucket for worker JavaScript bundles
+4. create or update Neon’s `bucket-credentials` Secret
 
 The generated Neon Secret contains:
 
@@ -81,12 +83,37 @@ new S3 settings.
 - `RUSTFS_SECRET_KEY`, default `neki-rustfs-secret`
 - `RUSTFS_REGION`, default `us-east-1`
 - `RUSTFS_BUCKET`, default `neon`
+- `RUSTFS_WORKERS_BUCKET`, default `workers`
 - `RUSTFS_ENDPOINT`, default `http://rustfs-svc.rustfs.svc.cluster.local:9000`
 - `NEON_NAMESPACE`, default `neon`
 - `NEON_BUCKET_SECRET`, default `bucket-credentials`
 - `CREATE_BUCKET`, default `true`
+- `CREATE_WORKERS_BUCKET`, default `true`
 - `SYNC_NEON_SECRET`, default `true`
 - `TIMEOUT`, default `300s`
+
+## Worker Bundle Uploads
+
+Forward the RustFS API for local CLI uploads:
+
+```bash
+kubectl port-forward --namespace rustfs svc/rustfs-svc 9000:9000
+```
+
+Upload a worker bundle:
+
+```bash
+cd packages/neki-controlplane
+cargo run -- rustfs upload-worker \
+  --file ../../examples/workerd-hello/worker.js \
+  --worker-id hello \
+  --version 2026-07-01.1 \
+  --endpoint http://localhost:9000
+```
+
+The command uploads to the `workers` bucket by default and prints the
+`rustfs://...` URL plus SHA-256 digest that should be stored in the worker
+control-plane record.
 
 ## Verify
 

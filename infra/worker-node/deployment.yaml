@@ -1,0 +1,113 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${NAME}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: neki-worker-node
+    app.kubernetes.io/instance: ${NAME}
+spec:
+  replicas: ${REPLICAS}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: neki-worker-node
+      app.kubernetes.io/instance: ${NAME}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: neki-worker-node
+        app.kubernetes.io/instance: ${NAME}
+        neki.dev/pool-id: ${POOL_ID}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: worker-node
+          image: "${NODE_IMAGE}"
+          imagePullPolicy: ${IMAGE_PULL_POLICY}
+          args:
+            - --pool-id=${POOL_ID}
+            - --node-id=$(POD_NAME)
+            - --state-dir=/var/lib/neki/workerd
+            - --manifest-listen=0.0.0.0:9000
+            - --workerd-listen=0.0.0.0:8080
+            - --workerd-bin=/usr/local/bin/workerd
+            - --router-js=/opt/neki/router.js
+            - --reconcile-interval-secs=${RECONCILE_INTERVAL_SECS}
+            - --compatibility-date=${COMPATIBILITY_DATE}
+            - --assignment-file=/etc/neki/assignment.json
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: NEKI_POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: RUSTFS_ENDPOINT
+              value: "${RUSTFS_ENDPOINT}"
+            - name: RUSTFS_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ${RUSTFS_SECRET}
+                  key: access-key
+            - name: RUSTFS_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ${RUSTFS_SECRET}
+                  key: secret-key
+            - name: RUSTFS_REGION
+              value: "${RUSTFS_REGION}"
+            - name: RUSTFS_WORKERS_BUCKET
+              value: "${RUSTFS_WORKERS_BUCKET}"
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: supervisor
+              containerPort: 9000
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: supervisor
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: supervisor
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          volumeMounts:
+            - name: runtime
+              mountPath: /var/lib/neki/workerd
+            - name: assignment
+              mountPath: /etc/neki
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: runtime
+          emptyDir: {}
+        - name: assignment
+          configMap:
+            name: ${ASSIGNMENT_CM}

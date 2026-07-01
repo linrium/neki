@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${NAME}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: neki-worker-router
+    app.kubernetes.io/instance: ${NAME}
+spec:
+  replicas: ${REPLICAS}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: neki-worker-router
+      app.kubernetes.io/instance: ${NAME}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: neki-worker-router
+        app.kubernetes.io/instance: ${NAME}
+    spec:
+      containers:
+        - name: router
+          image: "${ROUTER_IMAGE}"
+          imagePullPolicy: ${IMAGE_PULL_POLICY}
+          args:
+            - --listen=0.0.0.0:80
+            - --refresh-secs=${REFRESH_SECS}
+          env:
+            - name: NEKI_GATEWAY_LISTEN
+              value: "0.0.0.0:80"
+            - name: NEKI_ROUTING_TABLE_REFRESH_SECS
+              value: "${REFRESH_SECS}"
+          ports:
+            - name: http
+              containerPort: 80
+          readinessProbe:
+            tcpSocket:
+              port: 80
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: "1"
+              memory: 256Mi

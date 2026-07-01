@@ -1,0 +1,22 @@
+{
+  "pool_id": "public-small",
+  "node_id": "local",
+  "generation": "1",
+  "workers": [
+    {
+      "worker_id": "hello",
+      "version": "2026-07-01.1",
+      "script_url": "rustfs://workers/workers/hello/2026-07-01.1/worker.js",
+      "sha256": "REPLACE_WITH_ACTUAL_SHA256",
+      "compatibility_date": "2025-06-01"
+    }
+  ],
+  "routes": [
+    {
+      "host": "*",
+      "path_prefix": "/hello",
+      "methods": ["GET", "POST"],
+      "worker_id": "hello"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "generation": "1",
+  "routes": [
+    {
+      "host": "*",
+      "path_prefix": "/hello",
+      "methods": ["GET", "POST"],
+      "worker_id": "hello",
+      "targets": [
+        {
+          "node_id": "local",
+          "pod_ip": "127.0.0.1",
+          "port": 8080,
+          "weight": 1,
+          "healthy": true
+        }
+      ]
+    }
+  ]
+}
