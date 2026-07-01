@@ -175,6 +175,34 @@ export type PostgresProvisionResult = {
   error: string
 }
 
+export type NeonDatabaseProvisionResult = {
+  ok: boolean
+  title: string
+  message: string
+  neonNamespace: string
+  projectName: string
+  branchName: string
+  bucketName: string
+  database: string
+  username: string
+  vaultComponent: string
+  vaultSecretName: string
+  vaultPath: string
+  serviceReloadedAt: string
+  steps: Array<{ label: string; detail: string }>
+  error: string
+}
+
+export type NeonBranchMutationResult = {
+  ok: boolean
+  title: string
+  message: string
+  branchName: string
+  projectName: string
+  neonNamespace: string
+  error: string
+}
+
 export type ServicePostgresCluster = {
   name: string
   namespace: string
@@ -198,6 +226,60 @@ export type ServicePostgresCluster = {
 export type ServicePostgresClusters = {
   lastSyncedAt: string
   clusters: ServicePostgresCluster[]
+  errors: string[]
+}
+
+export type ServiceNeonDatabase = {
+  projectName: string
+  branchName: string
+  namespace: string
+  linkedToService: boolean
+  managedByConsole: boolean
+  projectCluster: string
+  bucketName: string
+  pgVersion: string
+  timelineId: string
+  computeHost: string
+  computePort: string
+  databaseUrl: string
+  vaultComponent: string
+  vaultPath: string
+  ready: boolean
+  phase: string
+  age: string
+}
+
+export type ServiceNeonProjectSummary = {
+  projectName: string
+  namespace: string
+  linkedToService: boolean
+  managedByConsole: boolean
+  cluster: string
+  bucketName: string
+  branchCount: number
+  readyBranchCount: number
+  latestBranchName: string
+  latestBranchPhase: string
+  vaultComponent: string
+  vaultPath: string
+  age: string
+}
+
+export type ServiceNeonDatabases = {
+  lastSyncedAt: string
+  databases: ServiceNeonProjectSummary[]
+  errors: string[]
+}
+
+export type ServiceNeonProjectBranches = {
+  lastSyncedAt: string
+  projectName: string
+  namespace: string
+  cluster: string
+  bucketName: string
+  linkedToService: boolean
+  managedByConsole: boolean
+  branches: ServiceNeonDatabase[]
   errors: string[]
 }
 
@@ -296,6 +378,9 @@ export async function refreshService(namespace: string, name: string) {
   )
   revalidatePath(
     `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/postgres`,
+  )
+  revalidatePath(
+    `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/databases`,
   )
   revalidatePath(
     `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/secrets`,
@@ -510,6 +595,313 @@ export async function loadServiceSecrets(
   }
 }
 
+export async function createServiceNeonDatabase(
+  namespace: string,
+  serviceName: string,
+  _previousState: NeonDatabaseProvisionResult,
+  formData: FormData,
+): Promise<NeonDatabaseProvisionResult> {
+  const startedAt = new Date().toISOString()
+  const input = {
+    neonNamespace: getFormString(formData, "neonNamespace") || "neon",
+    neonCluster: getFormString(formData, "neonCluster") || "neki-neon",
+    projectName:
+      getFormString(formData, "projectName") || `${serviceName}-project`,
+    branchName: getFormString(formData, "branchName") || `${serviceName}-main`,
+    pgVersion: getFormString(formData, "pgVersion") || "17",
+    database: getFormString(formData, "database") || "postgres",
+    username: getFormString(formData, "username") || "cloud_admin",
+    rustfsNamespace: getFormString(formData, "rustfsNamespace") || "rustfs",
+    rustfsEndpoint:
+      getFormString(formData, "rustfsEndpoint") ||
+      "http://rustfs-svc.rustfs.svc.cluster.local:9000",
+    rustfsSecretName:
+      getFormString(formData, "rustfsSecretName") || "rustfs-secret",
+    bucketName:
+      getFormString(formData, "bucketName") || `neon-${serviceName}-project`,
+    vaultComponent: getFormString(formData, "vaultComponent") || "vault",
+    vaultSecretName: getFormString(formData, "vaultSecretName") || serviceName,
+  }
+  const resultBase = {
+    neonNamespace: input.neonNamespace,
+    projectName: input.projectName,
+    branchName: input.branchName,
+    bucketName: input.bucketName,
+    database: input.database,
+    username: input.username,
+    vaultComponent: input.vaultComponent,
+    vaultSecretName: input.vaultSecretName,
+    vaultPath: "",
+    serviceReloadedAt: startedAt,
+    steps: [],
+  }
+
+  try {
+    validateKubernetesName(namespace, "Namespace")
+    validateKubernetesName(serviceName, "Service name")
+    validateKubernetesName(input.neonNamespace, "Neon namespace")
+    validateKubernetesName(input.neonCluster, "Neon cluster")
+    validateKubernetesName(input.projectName, "Neon project")
+    validateKubernetesName(input.branchName, "Neon branch")
+    validateKubernetesName(input.rustfsNamespace, "RustFS namespace")
+    validateKubernetesName(input.rustfsSecretName, "RustFS secret")
+    validateKubernetesName(input.vaultComponent, "Dapr Vault component")
+    validateVaultSecretName(input.vaultSecretName)
+    validateIdentifier(input.database, "Database")
+    validateIdentifier(input.username, "Username")
+    validatePostgresVersion(input.pgVersion)
+    validateBucketName(input.bucketName)
+
+    const { customObjectsApi, objectApi } = getClusterClient()
+    await getNamespacedKnativeService(customObjectsApi, namespace, serviceName)
+    await ensureNeonProjectIsNew(
+      customObjectsApi,
+      input.neonNamespace,
+      input.projectName,
+    )
+    await ensureNeonBranchIsNew(
+      customObjectsApi,
+      input.neonNamespace,
+      input.branchName,
+    )
+
+    const vault = await resolveDaprVault({
+      customObjectsApi,
+      objectApi,
+      namespace,
+      componentName: input.vaultComponent,
+    })
+    const vaultPath = buildVaultKvPath(vault, input.vaultSecretName)
+    const host = `${input.branchName}-postgres.${input.neonNamespace}.svc.cluster.local`
+    const port = "55433"
+    const databaseUrl = `postgres://${input.username}@${host}:${port}/${input.database}?sslmode=disable`
+
+    const bucketJobName = buildRustfsBucketJobName(input.bucketName)
+    await createRustfsBucketJob(objectApi, {
+      bucketName: input.bucketName,
+      endpoint: input.rustfsEndpoint,
+      jobName: bucketJobName,
+      namespace: input.rustfsNamespace,
+      secretName: input.rustfsSecretName,
+    })
+    await waitForJobComplete(objectApi, input.rustfsNamespace, bucketJobName)
+
+    await createCustomObject(customObjectsApi, {
+      group: "neon.oltp.molnett.org",
+      version: "v1alpha1",
+      namespace: input.neonNamespace,
+      plural: "projects",
+      body: buildNeonProject({
+        namespace: input.neonNamespace,
+        projectName: input.projectName,
+        neonCluster: input.neonCluster,
+        serviceNamespace: namespace,
+        serviceName,
+        bucketName: input.bucketName,
+        vaultComponent: input.vaultComponent,
+        vaultPath,
+      }),
+    })
+    await createCustomObject(customObjectsApi, {
+      group: "neon.oltp.molnett.org",
+      version: "v1alpha1",
+      namespace: input.neonNamespace,
+      plural: "branches",
+      body: buildNeonBranch({
+        namespace: input.neonNamespace,
+        branchName: input.branchName,
+        projectName: input.projectName,
+        pgVersion: Number(input.pgVersion),
+        serviceNamespace: namespace,
+        serviceName,
+        bucketName: input.bucketName,
+        vaultComponent: input.vaultComponent,
+        vaultPath,
+      }),
+    })
+    await writeVaultKvSecret(vault, input.vaultSecretName, {
+      DATABASE_URL: databaseUrl,
+      neonBranch: input.branchName,
+      neonComputeService: `${input.branchName}-postgres`,
+      neonNamespace: input.neonNamespace,
+      neonProject: input.projectName,
+      postgresDatabase: input.database,
+      postgresHost: host,
+      postgresPassword: "",
+      postgresPort: port,
+      postgresUsername: input.username,
+      rustfsBucket: input.bucketName,
+      rustfsEndpoint: input.rustfsEndpoint,
+    })
+    await reloadKnativeService(objectApi, namespace, serviceName, {
+      "neki.dev/neon-branch": input.branchName,
+      "neki.dev/neon-project": input.projectName,
+      "neki.dev/neon-vault-component": input.vaultComponent,
+      "neki.dev/neon-vault-secret": input.vaultSecretName,
+      "neki.dev/neon-reloaded-at": startedAt,
+    })
+    await waitForKnativeServiceReady(customObjectsApi, namespace, serviceName)
+
+    const servicePath = `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(serviceName)}`
+    revalidatePath(servicePath)
+    revalidatePath(`${servicePath}/databases`)
+    revalidatePath(`${servicePath}/secrets`)
+
+    return {
+      ok: true,
+      title: "Neon database requested",
+      message:
+        "Created the RustFS bucket, Neon Project, Neon Branch, saved connection fields to Vault, and reloaded the Knative service.",
+      ...resultBase,
+      vaultPath,
+      steps: [
+        {
+          label: "RustFS",
+          detail: `Created bucket ${input.bucketName} with job ${input.rustfsNamespace}/${bucketJobName}.`,
+        },
+        {
+          label: "Neon",
+          detail: `Created Project ${input.projectName} and Branch ${input.branchName} in ${input.neonNamespace}.`,
+        },
+        {
+          label: "Vault",
+          detail: `Wrote Neon connection fields to ${vaultPath} through ${input.vaultComponent}.`,
+        },
+        {
+          label: "Knative",
+          detail: `Reloaded ${namespace}/${serviceName} and waited for the new template to become ready.`,
+        },
+      ],
+      error: "",
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      title: "Neon provisioning failed",
+      message: "No Neon database was completed.",
+      ...resultBase,
+      error: getErrorMessage(error),
+    }
+  }
+}
+
+export async function createServiceNeonBranch(
+  namespace: string,
+  serviceName: string,
+  projectName: string,
+  _previousState: NeonBranchMutationResult,
+  formData: FormData,
+): Promise<NeonBranchMutationResult> {
+  const input = {
+    neonNamespace: getFormString(formData, "neonNamespace") || "neon",
+    branchName: getFormString(formData, "branchName"),
+    pgVersion: getFormString(formData, "pgVersion") || "17",
+    vaultComponent: getFormString(formData, "vaultComponent") || "vault",
+    vaultPath: getFormString(formData, "vaultPath"),
+    bucketName: getFormString(formData, "bucketName"),
+  }
+  const resultBase = {
+    branchName: input.branchName,
+    projectName,
+    neonNamespace: input.neonNamespace,
+  }
+
+  try {
+    validateKubernetesName(namespace, "Namespace")
+    validateKubernetesName(serviceName, "Service name")
+    validateKubernetesName(input.neonNamespace, "Neon namespace")
+    validateKubernetesName(projectName, "Neon project")
+    validateKubernetesName(input.branchName, "Neon branch")
+    validateKubernetesName(input.vaultComponent, "Dapr Vault component")
+    validatePostgresVersion(input.pgVersion)
+    if (input.bucketName) {
+      validateBucketName(input.bucketName)
+    }
+
+    const { customObjectsApi } = getClusterClient()
+    await getNamespacedKnativeService(customObjectsApi, namespace, serviceName)
+    await getNeonProject(customObjectsApi, input.neonNamespace, projectName)
+    await ensureNeonBranchIsNew(
+      customObjectsApi,
+      input.neonNamespace,
+      input.branchName,
+    )
+    await createCustomObject(customObjectsApi, {
+      group: "neon.oltp.molnett.org",
+      version: "v1alpha1",
+      namespace: input.neonNamespace,
+      plural: "branches",
+      body: buildNeonBranch({
+        namespace: input.neonNamespace,
+        branchName: input.branchName,
+        projectName,
+        pgVersion: Number(input.pgVersion),
+        serviceNamespace: namespace,
+        serviceName,
+        bucketName: input.bucketName,
+        vaultComponent: input.vaultComponent,
+        vaultPath: input.vaultPath,
+      }),
+    })
+
+    const servicePath = `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(serviceName)}`
+    revalidatePath(`${servicePath}/databases`)
+    revalidatePath(
+      `${servicePath}/databases/${encodeURIComponent(projectName)}`,
+    )
+
+    return {
+      ok: true,
+      title: "Branch created",
+      message: `Created Neon Branch ${input.neonNamespace}/${input.branchName}.`,
+      ...resultBase,
+      error: "",
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      title: "Branch create failed",
+      message: "The Neon branch was not created.",
+      ...resultBase,
+      error: getErrorMessage(error),
+    }
+  }
+}
+
+export async function deleteServiceNeonBranch(
+  namespace: string,
+  serviceName: string,
+  projectName: string,
+  neonNamespace: string,
+  branchName: string,
+) {
+  try {
+    validateKubernetesName(namespace, "Namespace")
+    validateKubernetesName(serviceName, "Service name")
+    validateKubernetesName(projectName, "Neon project")
+    validateKubernetesName(neonNamespace, "Neon namespace")
+    validateKubernetesName(branchName, "Neon branch")
+
+    const { customObjectsApi } = getClusterClient()
+    await getNamespacedKnativeService(customObjectsApi, namespace, serviceName)
+    await customObjectsApi.deleteNamespacedCustomObject({
+      group: "neon.oltp.molnett.org",
+      version: "v1alpha1",
+      namespace: neonNamespace,
+      plural: "branches",
+      name: branchName,
+    })
+  } catch (error) {
+    if (getErrorStatus(error) !== 404) {
+      throw error
+    }
+  }
+
+  const servicePath = `/services/${encodeURIComponent(namespace)}/${encodeURIComponent(serviceName)}`
+  revalidatePath(`${servicePath}/databases`)
+  revalidatePath(`${servicePath}/databases/${encodeURIComponent(projectName)}`)
+}
+
 export async function getServicePostgresClusters(
   namespace: string,
   serviceName: string,
@@ -541,6 +933,128 @@ export async function getServicePostgresClusters(
       lastSyncedAt,
       clusters: [],
       errors: [`CloudNativePG clusters: ${getErrorMessage(error)}`],
+    }
+  }
+}
+
+export async function getServiceNeonDatabases(
+  _namespace: string,
+  serviceName: string,
+): Promise<ServiceNeonDatabases> {
+  const lastSyncedAt = new Date().toISOString()
+  const neonNamespace = process.env.NEON_NAMESPACE || "neon"
+
+  try {
+    validateKubernetesName(serviceName, "Service name")
+    validateKubernetesName(neonNamespace, "Neon namespace")
+
+    const { customObjectsApi } = getClusterClient()
+    const [projectsResponse, branchesResponse] = await Promise.all([
+      customObjectsApi.listNamespacedCustomObject({
+        group: "neon.oltp.molnett.org",
+        version: "v1alpha1",
+        namespace: neonNamespace,
+        plural: "projects",
+        timeoutSeconds: 8,
+      }) as Promise<CustomObjectList>,
+      customObjectsApi.listNamespacedCustomObject({
+        group: "neon.oltp.molnett.org",
+        version: "v1alpha1",
+        namespace: neonNamespace,
+        plural: "branches",
+        timeoutSeconds: 8,
+      }) as Promise<CustomObjectList>,
+    ])
+    const projectsByName = new Map(
+      (projectsResponse.items ?? []).map((project) => [
+        project.metadata?.name ?? "",
+        project,
+      ]),
+    )
+    const branches = (branchesResponse.items ?? []).map((branch) =>
+      toServiceNeonDatabase(
+        branch,
+        projectsByName.get(getString(getRecord(branch.spec)?.projectID) ?? ""),
+        serviceName,
+      ),
+    )
+
+    return {
+      lastSyncedAt,
+      databases: (projectsResponse.items ?? [])
+        .map((project) =>
+          toServiceNeonProjectSummary(project, branches, serviceName),
+        )
+        .sort(sortServiceNeonProjectSummaries),
+      errors: [],
+    }
+  } catch (error) {
+    return {
+      lastSyncedAt,
+      databases: [],
+      errors: [`Neon databases: ${getErrorMessage(error)}`],
+    }
+  }
+}
+
+export async function getServiceNeonProjectBranches(
+  _namespace: string,
+  serviceName: string,
+  projectName: string,
+): Promise<ServiceNeonProjectBranches> {
+  const lastSyncedAt = new Date().toISOString()
+  const neonNamespace = process.env.NEON_NAMESPACE || "neon"
+
+  try {
+    validateKubernetesName(serviceName, "Service name")
+    validateKubernetesName(projectName, "Neon project")
+    validateKubernetesName(neonNamespace, "Neon namespace")
+
+    const { customObjectsApi } = getClusterClient()
+    const [project, branchesResponse] = await Promise.all([
+      getNeonProject(customObjectsApi, neonNamespace, projectName),
+      customObjectsApi.listNamespacedCustomObject({
+        group: "neon.oltp.molnett.org",
+        version: "v1alpha1",
+        namespace: neonNamespace,
+        plural: "branches",
+        timeoutSeconds: 8,
+      }) as Promise<CustomObjectList>,
+    ])
+    const labels = project.metadata?.labels ?? {}
+    const annotations = project.metadata?.annotations ?? {}
+    const spec = getRecord(project.spec)
+    const branches = (branchesResponse.items ?? [])
+      .filter(
+        (branch) =>
+          getString(getRecord(branch.spec)?.projectID) === projectName,
+      )
+      .map((branch) => toServiceNeonDatabase(branch, project, serviceName))
+      .sort(sortServiceNeonDatabases)
+
+    return {
+      lastSyncedAt,
+      projectName,
+      namespace: project.metadata?.namespace ?? neonNamespace,
+      cluster: getString(spec?.cluster) || EMPTY_VALUE,
+      bucketName: annotations["neki.dev/rustfs-bucket"] || EMPTY_VALUE,
+      linkedToService: labels["app.kubernetes.io/part-of"] === serviceName,
+      managedByConsole:
+        labels["app.kubernetes.io/managed-by"] === "neki-console",
+      branches,
+      errors: [],
+    }
+  } catch (error) {
+    return {
+      lastSyncedAt,
+      projectName,
+      namespace: neonNamespace,
+      cluster: EMPTY_VALUE,
+      bucketName: EMPTY_VALUE,
+      linkedToService: false,
+      managedByConsole: false,
+      branches: [],
+      errors: [`Neon project: ${getErrorMessage(error)}`],
     }
   }
 }
@@ -1089,6 +1603,123 @@ function sortServicePostgresClusters(
   return right.age.localeCompare(left.age)
 }
 
+function toServiceNeonDatabase(
+  branch: KubernetesCustomObject,
+  project: KubernetesCustomObject | undefined,
+  serviceName: string,
+): ServiceNeonDatabase {
+  const metadata = branch.metadata ?? {}
+  const labels = metadata.labels ?? {}
+  const annotations = metadata.annotations ?? {}
+  const spec = getRecord(branch.spec)
+  const status = getRecord(branch.status)
+  const projectSpec = getRecord(project?.spec)
+  const timelineCondition = getCondition(status?.conditions, "TimelineCreated")
+  const computeCondition = getCondition(status?.conditions, "ComputeReady")
+  const availableCondition = getCondition(status?.conditions, "Available")
+  const projectName = getString(spec?.projectID) || EMPTY_VALUE
+  const branchName = metadata.name ?? EMPTY_VALUE
+  const namespace = metadata.namespace ?? EMPTY_VALUE
+  const computeHost =
+    branchName !== EMPTY_VALUE && namespace !== EMPTY_VALUE
+      ? `${branchName}-postgres.${namespace}.svc.cluster.local`
+      : EMPTY_VALUE
+  const computePort = "55433"
+  const linkedToService = labels["app.kubernetes.io/part-of"] === serviceName
+  const ready =
+    availableCondition?.status === "True" || computeCondition?.status === "True"
+
+  return {
+    projectName,
+    branchName,
+    namespace,
+    linkedToService,
+    managedByConsole: labels["app.kubernetes.io/managed-by"] === "neki-console",
+    projectCluster: getString(projectSpec?.cluster) || EMPTY_VALUE,
+    bucketName: annotations["neki.dev/rustfs-bucket"] || EMPTY_VALUE,
+    pgVersion: formatValue(spec?.pgVersion),
+    timelineId: getString(status?.timelineID) || EMPTY_VALUE,
+    computeHost,
+    computePort,
+    databaseUrl:
+      computeHost !== EMPTY_VALUE
+        ? `postgres://cloud_admin@${computeHost}:${computePort}/postgres?sslmode=disable`
+        : EMPTY_VALUE,
+    vaultComponent: annotations["neki.dev/dapr-vault-component"] || EMPTY_VALUE,
+    vaultPath: annotations["neki.dev/dapr-vault-path"] || EMPTY_VALUE,
+    ready,
+    phase:
+      availableCondition?.reason ||
+      computeCondition?.reason ||
+      timelineCondition?.reason ||
+      availableCondition?.message ||
+      computeCondition?.message ||
+      timelineCondition?.message ||
+      EMPTY_VALUE,
+    age: metadata.creationTimestamp ?? "",
+  }
+}
+
+function toServiceNeonProjectSummary(
+  project: KubernetesCustomObject,
+  branches: ServiceNeonDatabase[],
+  serviceName: string,
+): ServiceNeonProjectSummary {
+  const metadata = project.metadata ?? {}
+  const labels = metadata.labels ?? {}
+  const annotations = metadata.annotations ?? {}
+  const spec = getRecord(project.spec)
+  const projectName = metadata.name ?? EMPTY_VALUE
+  const projectBranches = branches
+    .filter((branch) => branch.projectName === projectName)
+    .sort(sortServiceNeonDatabases)
+  const latestBranch = projectBranches[0]
+
+  return {
+    projectName,
+    namespace: metadata.namespace ?? EMPTY_VALUE,
+    linkedToService: labels["app.kubernetes.io/part-of"] === serviceName,
+    managedByConsole: labels["app.kubernetes.io/managed-by"] === "neki-console",
+    cluster: getString(spec?.cluster) || EMPTY_VALUE,
+    bucketName: annotations["neki.dev/rustfs-bucket"] || EMPTY_VALUE,
+    branchCount: projectBranches.length,
+    readyBranchCount: projectBranches.filter((branch) => branch.ready).length,
+    latestBranchName: latestBranch?.branchName ?? EMPTY_VALUE,
+    latestBranchPhase: latestBranch?.phase ?? EMPTY_VALUE,
+    vaultComponent:
+      latestBranch?.vaultComponent ||
+      annotations["neki.dev/dapr-vault-component"] ||
+      EMPTY_VALUE,
+    vaultPath:
+      latestBranch?.vaultPath ||
+      annotations["neki.dev/dapr-vault-path"] ||
+      EMPTY_VALUE,
+    age: metadata.creationTimestamp ?? "",
+  }
+}
+
+function sortServiceNeonDatabases(
+  left: ServiceNeonDatabase,
+  right: ServiceNeonDatabase,
+) {
+  if (left.linkedToService !== right.linkedToService) {
+    return left.linkedToService ? -1 : 1
+  }
+
+  return right.age.localeCompare(left.age)
+}
+
+function sortServiceNeonProjectSummaries(
+  left: ServiceNeonProjectSummary,
+  right: ServiceNeonProjectSummary,
+) {
+  if (left.linkedToService !== right.linkedToService) {
+    return left.linkedToService ? -1 : 1
+  }
+
+  return right.age.localeCompare(left.age)
+}
+
 function toContainerPorts(ports: unknown): string[] {
   if (!Array.isArray(ports)) {
     return []
@@ -1233,6 +1864,66 @@ async function ensurePostgresClusterIsNew(
   throw new Error(
     `Postgres cluster ${namespace}/${clusterName} already exists.`,
   )
+}
+
+async function ensureNeonProjectIsNew(
+  customObjectsApi: CustomObjectsApi,
+  namespace: string,
+  projectName: string,
+) {
+  try {
+    await customObjectsApi.getNamespacedCustomObject({
+      group: "neon.oltp.molnett.org",
+      version: "v1alpha1",
+      namespace,
+      plural: "projects",
+      name: projectName,
+    })
+  } catch (error) {
+    if (getErrorStatus(error) === 404) {
+      return
+    }
+    throw error
+  }
+
+  throw new Error(`Neon project ${namespace}/${projectName} already exists.`)
+}
+
+async function getNeonProject(
+  customObjectsApi: CustomObjectsApi,
+  namespace: string,
+  projectName: string,
+) {
+  return (await customObjectsApi.getNamespacedCustomObject({
+    group: "neon.oltp.molnett.org",
+    version: "v1alpha1",
+    namespace,
+    plural: "projects",
+    name: projectName,
+  })) as KubernetesCustomObject
+}
+
+async function ensureNeonBranchIsNew(
+  customObjectsApi: CustomObjectsApi,
+  namespace: string,
+  branchName: string,
+) {
+  try {
+    await customObjectsApi.getNamespacedCustomObject({
+      group: "neon.oltp.molnett.org",
+      version: "v1alpha1",
+      namespace,
+      plural: "branches",
+      name: branchName,
+    })
+  } catch (error) {
+    if (getErrorStatus(error) === 404) {
+      return
+    }
+    throw error
+  }
+
+  throw new Error(`Neon branch ${namespace}/${branchName} already exists.`)
 }
 
 async function resolveDaprVault({
@@ -1570,6 +2261,210 @@ function buildPostgresCluster({
   }
 }
 
+function buildNeonProject({
+  namespace,
+  projectName,
+  neonCluster,
+  serviceNamespace,
+  serviceName,
+  bucketName,
+  vaultComponent,
+  vaultPath,
+}: {
+  namespace: string
+  projectName: string
+  neonCluster: string
+  serviceNamespace: string
+  serviceName: string
+  bucketName: string
+  vaultComponent: string
+  vaultPath: string
+}): KubernetesCustomObject {
+  return {
+    apiVersion: "neon.oltp.molnett.org/v1alpha1",
+    kind: "Project",
+    metadata: {
+      name: projectName,
+      namespace,
+      annotations: {
+        "neki.dev/service-namespace": serviceNamespace,
+        "neki.dev/rustfs-bucket": bucketName,
+        "neki.dev/dapr-vault-component": vaultComponent,
+        "neki.dev/dapr-vault-path": vaultPath,
+      },
+      labels: {
+        "app.kubernetes.io/name": "neon",
+        "app.kubernetes.io/managed-by": "neki-console",
+        "app.kubernetes.io/part-of": serviceName,
+      },
+    },
+    spec: {
+      cluster: neonCluster,
+    },
+  }
+}
+
+function buildNeonBranch({
+  namespace,
+  branchName,
+  projectName,
+  pgVersion,
+  serviceNamespace,
+  serviceName,
+  bucketName,
+  vaultComponent,
+  vaultPath,
+}: {
+  namespace: string
+  branchName: string
+  projectName: string
+  pgVersion: number
+  serviceNamespace: string
+  serviceName: string
+  bucketName: string
+  vaultComponent: string
+  vaultPath: string
+}): KubernetesCustomObject {
+  return {
+    apiVersion: "neon.oltp.molnett.org/v1alpha1",
+    kind: "Branch",
+    metadata: {
+      name: branchName,
+      namespace,
+      annotations: {
+        "neki.dev/service-namespace": serviceNamespace,
+        "neki.dev/rustfs-bucket": bucketName,
+        "neki.dev/dapr-vault-component": vaultComponent,
+        "neki.dev/dapr-vault-path": vaultPath,
+      },
+      labels: {
+        "app.kubernetes.io/name": "neon",
+        "app.kubernetes.io/managed-by": "neki-console",
+        "app.kubernetes.io/part-of": serviceName,
+      },
+    },
+    spec: {
+      projectID: projectName,
+      pgVersion,
+    },
+  }
+}
+
+async function createRustfsBucketJob(
+  objectApi: KubernetesObjectApi,
+  input: {
+    bucketName: string
+    endpoint: string
+    jobName: string
+    namespace: string
+    secretName: string
+  },
+) {
+  await objectApi.create(
+    {
+      apiVersion: "batch/v1",
+      kind: "Job",
+      metadata: {
+        name: input.jobName,
+        namespace: input.namespace,
+        labels: {
+          "app.kubernetes.io/managed-by": "neki-console",
+          "app.kubernetes.io/name": "rustfs-bucket",
+        },
+      },
+      spec: {
+        backoffLimit: 3,
+        template: {
+          spec: {
+            restartPolicy: "Never",
+            containers: [
+              {
+                name: "mc",
+                image: "minio/mc:latest",
+                imagePullPolicy: "IfNotPresent",
+                env: [
+                  { name: "RUSTFS_ENDPOINT", value: input.endpoint },
+                  { name: "RUSTFS_BUCKET", value: input.bucketName },
+                  {
+                    name: "RUSTFS_ACCESS_KEY",
+                    valueFrom: {
+                      secretKeyRef: {
+                        name: input.secretName,
+                        key: "RUSTFS_ACCESS_KEY",
+                      },
+                    },
+                  },
+                  {
+                    name: "RUSTFS_SECRET_KEY",
+                    valueFrom: {
+                      secretKeyRef: {
+                        name: input.secretName,
+                        key: "RUSTFS_SECRET_KEY",
+                      },
+                    },
+                  },
+                ],
+                command: [
+                  "/bin/sh",
+                  "-ec",
+                  [
+                    'mc alias set rustfs "$RUSTFS_ENDPOINT" "$RUSTFS_ACCESS_KEY" "$RUSTFS_SECRET_KEY"',
+                    'mc mb --ignore-existing "rustfs/$RUSTFS_BUCKET"',
+                  ].join("\n"),
+                ],
+              },
+            ],
+          },
+        },
+      },
+    },
+    undefined,
+    undefined,
+    "neki-console",
+  )
+}
+
+async function waitForJobComplete(
+  objectApi: KubernetesObjectApi,
+  namespace: string,
+  jobName: string,
+) {
+  const timeoutAt = Date.now() + 120_000
+
+  while (Date.now() < timeoutAt) {
+    const job = await objectApi.read<KubernetesObject & { status?: unknown }>({
+      apiVersion: "batch/v1",
+      kind: "Job",
+      metadata: {
+        name: jobName,
+        namespace,
+      },
+    })
+    const status = getRecord(job.status)
+    const succeeded = getNumber(status?.succeeded) ?? 0
+    const failed = getNumber(status?.failed) ?? 0
+
+    if (succeeded > 0) {
+      return
+    }
+
+    if (failed >= 3) {
+      throw new Error(`RustFS bucket job ${namespace}/${jobName} failed.`)
+    }
+
+    await sleep(2000)
+  }
+
+  throw new Error(
+    `RustFS bucket job ${namespace}/${jobName} did not complete in time.`,
+  )
+}
+
+function buildRustfsBucketJobName(bucketName: string) {
+  const suffix = Math.random().toString(36).slice(2, 8)
+  return `${bucketName.slice(0, 43)}-${suffix}`.replace(/-+$/g, "")
+}
+
 async function createCustomObject(
   customObjectsApi: CustomObjectsApi,
   request: {
@@ -1727,6 +2622,27 @@ function validateIdentifier(value: string, label: string) {
 function validateStorageSize(value: string) {
   if (!/^[1-9][0-9]*(Mi|Gi|Ti)$/.test(value)) {
     throw new Error("Storage size must look like 512Mi, 8Gi, or 1Ti.")
+  }
+}
+
+function validatePostgresVersion(value: string) {
+  if (!/^(14|15|16|17)$/.test(value)) {
+    throw new Error("Postgres version must be 14, 15, 16, or 17.")
+  }
+}
+
+function validateBucketName(value: string) {
+  if (
+    value.length < 3 ||
+    value.length > 63 ||
+    !/^[a-z0-9][a-z0-9.-]*[a-z0-9]$/.test(value) ||
+    value.includes("..") ||
+    value.includes(".-") ||
+    value.includes("-.")
+  ) {
+    throw new Error(
+      "RustFS bucket must be a lowercase S3 bucket name between 3 and 63 characters.",
+    )
   }
 }
 

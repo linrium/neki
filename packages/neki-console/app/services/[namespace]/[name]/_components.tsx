@@ -24,6 +24,7 @@ export type ServiceTab =
   | "logs"
   | "playground"
   | "postgres"
+  | "databases"
   | "secrets"
 
 export function ServicePageFrame({
@@ -202,6 +203,12 @@ function ServiceTabs({
       value: "postgres",
       label: "Postgres",
       href: `${baseHref}/postgres`,
+      icon: IconDatabase,
+    },
+    {
+      value: "databases",
+      label: "Databases",
+      href: `${baseHref}/databases`,
       icon: IconDatabase,
     },
     {

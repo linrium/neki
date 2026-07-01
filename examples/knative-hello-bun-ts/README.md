@@ -113,6 +113,28 @@ The `/` response lists the Dapr Vault secret keys, marks which keys are required
 for Postgres, and reports the connection check result without exposing the
 password.
 
+## Create Neon from neki-console
+
+Open the neki-console service detail page for `hello-bun-ts`, then choose the
+**Databases** tab. The form creates a RustFS bucket, a Neon `Project`, a Neon
+`Branch`, writes the Neon connection fields to the same Dapr Vault secret, and
+reloads the Knative service template.
+
+For the Docker Desktop Neon setup, keep the defaults:
+
+```text
+Neon namespace=neon
+Neon cluster=neki-neon
+Postgres version=17
+RustFS namespace=rustfs
+RustFS endpoint=http://rustfs-svc.rustfs.svc.cluster.local:9000
+Vault secret name=hello-bun-ts
+```
+
+The console writes the standard `postgres*` keys plus `DATABASE_URL`,
+`neonProject`, `neonBranch`, and `rustfsBucket`. Local Neon accepts an empty
+`postgresPassword`, and this example allows that when checking the connection.
+
 If the revision reports `ErrImageNeverPull`, Kubernetes cannot see an image with
 the exact name from the manifest. Re-run `./deploy.sh`; it builds with
 `docker buildx build --load` when available and verifies the image exists locally:

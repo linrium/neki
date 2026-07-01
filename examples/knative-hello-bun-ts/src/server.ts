@@ -10,7 +10,7 @@ type DaprSecret = Record<string, string>;
 type PostgresSecret = {
   database: string;
   hostname: string;
-  password: string;
+  password?: string;
   port: number;
   username: string;
 };
@@ -64,7 +64,7 @@ async function checkPostgresFromVault(
       connected: false,
       database: "",
       error:
-        "Dapr Vault secret must include postgresDatabase, postgresHost, postgresPassword, postgresPort, and postgresUsername.",
+        "Dapr Vault secret must include postgresDatabase, postgresHost, postgresPort, and postgresUsername. postgresPassword may be empty for local Neon.",
       host: "",
       requiredSecretKeys: postgresSecretKeys,
       user: "",
@@ -113,7 +113,7 @@ function getPostgresSecret(secret: DaprSecret): PostgresSecret | undefined {
   const port = Number(secret.postgresPort);
   const username = secret.postgresUsername;
 
-  if (!database || !hostname || !password || !username) {
+  if (!database || !hostname || password === undefined || !username) {
     return undefined;
   }
 
