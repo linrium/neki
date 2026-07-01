@@ -1,0 +1,17 @@
+apiVersion: neon.oltp.molnett.org/v1alpha1
+kind: Cluster
+metadata:
+  name: neki-neon
+  namespace: neon
+  labels:
+    app.kubernetes.io/name: neon
+    app.kubernetes.io/part-of: neki
+spec:
+  defaultPGVersion: 17
+  neonImage: neondatabase/neon:8463
+  numSafekeepers: 3
+  bucketCredentialsSecret:
+    name: bucket-credentials
+  storageControllerDatabaseSecret:
+    name: storage-controller-database
+    key: uri

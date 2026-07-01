@@ -1,0 +1,15 @@
+apiVersion: neon.oltp.molnett.org/v1alpha1
+kind: Pageserver
+metadata:
+  name: neki-pageserver-0
+  namespace: neon
+  labels:
+    app.kubernetes.io/name: neon
+    app.kubernetes.io/part-of: neki
+spec:
+  cluster: neki-neon
+  id: 0
+  bucketCredentialsSecret:
+    name: bucket-credentials
+  storageConfig:
+    size: 10Gi

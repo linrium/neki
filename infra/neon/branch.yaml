@@ -1,0 +1,11 @@
+apiVersion: neon.oltp.molnett.org/v1alpha1
+kind: Branch
+metadata:
+  name: main
+  namespace: neon
+  labels:
+    app.kubernetes.io/name: neon
+    app.kubernetes.io/part-of: neki
+spec:
+  projectID: neki-project
+  pgVersion: 17

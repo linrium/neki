@@ -1,0 +1,10 @@
+apiVersion: neon.oltp.molnett.org/v1alpha1
+kind: Project
+metadata:
+  name: neki-project
+  namespace: neon
+  labels:
+    app.kubernetes.io/name: neon
+    app.kubernetes.io/part-of: neki
+spec:
+  cluster: neki-neon

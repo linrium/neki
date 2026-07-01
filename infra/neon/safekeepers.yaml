@@ -1,0 +1,41 @@
+apiVersion: neon.oltp.molnett.org/v1alpha1
+kind: Safekeeper
+metadata:
+  name: neki-safekeeper-0
+  namespace: neon
+  labels:
+    app.kubernetes.io/name: neon
+    app.kubernetes.io/part-of: neki
+spec:
+  cluster: neki-neon
+  id: 0
+  storageConfig:
+    size: 10Gi
+---
+apiVersion: neon.oltp.molnett.org/v1alpha1
+kind: Safekeeper
+metadata:
+  name: neki-safekeeper-1
+  namespace: neon
+  labels:
+    app.kubernetes.io/name: neon
+    app.kubernetes.io/part-of: neki
+spec:
+  cluster: neki-neon
+  id: 1
+  storageConfig:
+    size: 10Gi
+---
+apiVersion: neon.oltp.molnett.org/v1alpha1
+kind: Safekeeper
+metadata:
+  name: neki-safekeeper-2
+  namespace: neon
+  labels:
+    app.kubernetes.io/name: neon
+    app.kubernetes.io/part-of: neki
+spec:
+  cluster: neki-neon
+  id: 2
+  storageConfig:
+    size: 10Gi
