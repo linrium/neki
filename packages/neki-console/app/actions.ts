@@ -650,10 +650,15 @@ export async function createServiceNeonDatabase(
     validateIdentifier(input.database, "Database")
     validateIdentifier(input.username, "Username")
     validatePostgresVersion(input.pgVersion)
-    validateBucketName(input.bucketName)
 
     const { customObjectsApi, objectApi } = getClusterClient()
     await getNamespacedKnativeService(customObjectsApi, namespace, serviceName)
+    const neonBucket = await resolveNeonBucketConfig({
+      customObjectsApi,
+      objectApi,
+      namespace: input.neonNamespace,
+      clusterName: input.neonCluster,
+    })
     await ensureNeonProjectIsNew(
       customObjectsApi,
       input.neonNamespace,
@@ -676,10 +681,10 @@ export async function createServiceNeonDatabase(
     const port = "55433"
     const databaseUrl = `postgres://${input.username}@${host}:${port}/${input.database}?sslmode=disable`
 
-    const bucketJobName = buildRustfsBucketJobName(input.bucketName)
+    const bucketJobName = buildRustfsBucketJobName(neonBucket.bucketName)
     await createRustfsBucketJob(objectApi, {
-      bucketName: input.bucketName,
-      endpoint: input.rustfsEndpoint,
+      bucketName: neonBucket.bucketName,
+      endpoint: neonBucket.endpoint || input.rustfsEndpoint,
       jobName: bucketJobName,
       namespace: input.rustfsNamespace,
       secretName: input.rustfsSecretName,
@@ -697,7 +702,7 @@ export async function createServiceNeonDatabase(
         neonCluster: input.neonCluster,
         serviceNamespace: namespace,
         serviceName,
-        bucketName: input.bucketName,
+        bucketName: neonBucket.bucketName,
         vaultComponent: input.vaultComponent,
         vaultPath,
       }),
@@ -714,7 +719,7 @@ export async function createServiceNeonDatabase(
         pgVersion: Number(input.pgVersion),
         serviceNamespace: namespace,
         serviceName,
-        bucketName: input.bucketName,
+        bucketName: neonBucket.bucketName,
         vaultComponent: input.vaultComponent,
         vaultPath,
       }),
@@ -730,8 +735,8 @@ export async function createServiceNeonDatabase(
       postgresPassword: "",
       postgresPort: port,
       postgresUsername: input.username,
-      rustfsBucket: input.bucketName,
-      rustfsEndpoint: input.rustfsEndpoint,
+      rustfsBucket: neonBucket.bucketName,
+      rustfsEndpoint: neonBucket.endpoint || input.rustfsEndpoint,
     })
     await reloadKnativeService(objectApi, namespace, serviceName, {
       "neki.dev/neon-branch": input.branchName,
@@ -753,11 +758,12 @@ export async function createServiceNeonDatabase(
       message:
         "Created the RustFS bucket, Neon Project, Neon Branch, saved connection fields to Vault, and reloaded the Knative service.",
       ...resultBase,
+      bucketName: neonBucket.bucketName,
       vaultPath,
       steps: [
         {
           label: "RustFS",
-          detail: `Created bucket ${input.bucketName} with job ${input.rustfsNamespace}/${bucketJobName}.`,
+          detail: `Ensured Neon bucket ${neonBucket.bucketName} with job ${input.rustfsNamespace}/${bucketJobName}.`,
         },
         {
           label: "Neon",
@@ -948,7 +954,7 @@ export async function getServiceNeonDatabases(
     validateKubernetesName(serviceName, "Service name")
     validateKubernetesName(neonNamespace, "Neon namespace")
 
-    const { customObjectsApi } = getClusterClient()
+    const { customObjectsApi, objectApi } = getClusterClient()
     const [projectsResponse, branchesResponse] = await Promise.all([
       customObjectsApi.listNamespacedCustomObject({
         group: "neon.oltp.molnett.org",
@@ -971,6 +977,12 @@ export async function getServiceNeonDatabases(
         project,
       ]),
     )
+    const projectBuckets = await resolveProjectBuckets({
+      customObjectsApi,
+      objectApi,
+      namespace: neonNamespace,
+      projects: projectsResponse.items ?? [],
+    })
     const branches = (branchesResponse.items ?? []).map((branch) =>
       toServiceNeonDatabase(
         branch,
@@ -983,7 +995,12 @@ export async function getServiceNeonDatabases(
       lastSyncedAt,
       databases: (projectsResponse.items ?? [])
         .map((project) =>
-          toServiceNeonProjectSummary(project, branches, serviceName),
+          toServiceNeonProjectSummary(
+            project,
+            branches,
+            serviceName,
+            projectBuckets.get(project.metadata?.name ?? ""),
+          ),
         )
         .sort(sortServiceNeonProjectSummaries),
       errors: [],
@@ -1010,7 +1027,7 @@ export async function getServiceNeonProjectBranches(
     validateKubernetesName(projectName, "Neon project")
     validateKubernetesName(neonNamespace, "Neon namespace")
 
-    const { customObjectsApi } = getClusterClient()
+    const { customObjectsApi, objectApi } = getClusterClient()
     const [project, branchesResponse] = await Promise.all([
       getNeonProject(customObjectsApi, neonNamespace, projectName),
       customObjectsApi.listNamespacedCustomObject({
@@ -1024,6 +1041,12 @@ export async function getServiceNeonProjectBranches(
     const labels = project.metadata?.labels ?? {}
     const annotations = project.metadata?.annotations ?? {}
     const spec = getRecord(project.spec)
+    const bucketConfig = await resolveNeonBucketConfig({
+      customObjectsApi,
+      objectApi,
+      namespace: neonNamespace,
+      clusterName: getString(spec?.cluster) || "",
+    })
     const branches = (branchesResponse.items ?? [])
       .filter(
         (branch) =>
@@ -1037,7 +1060,10 @@ export async function getServiceNeonProjectBranches(
       projectName,
       namespace: project.metadata?.namespace ?? neonNamespace,
       cluster: getString(spec?.cluster) || EMPTY_VALUE,
-      bucketName: annotations["neki.dev/rustfs-bucket"] || EMPTY_VALUE,
+      bucketName:
+        bucketConfig.bucketName ||
+        annotations["neki.dev/rustfs-bucket"] ||
+        EMPTY_VALUE,
       linkedToService: labels["app.kubernetes.io/part-of"] === serviceName,
       managedByConsole:
         labels["app.kubernetes.io/managed-by"] === "neki-console",
@@ -1664,6 +1690,7 @@ function toServiceNeonProjectSummary(
   project: KubernetesCustomObject,
   branches: ServiceNeonDatabase[],
   serviceName: string,
+  bucketNameOverride = "",
 ): ServiceNeonProjectSummary {
   const metadata = project.metadata ?? {}
   const labels = metadata.labels ?? {}
@@ -1681,7 +1708,10 @@ function toServiceNeonProjectSummary(
     linkedToService: labels["app.kubernetes.io/part-of"] === serviceName,
     managedByConsole: labels["app.kubernetes.io/managed-by"] === "neki-console",
     cluster: getString(spec?.cluster) || EMPTY_VALUE,
-    bucketName: annotations["neki.dev/rustfs-bucket"] || EMPTY_VALUE,
+    bucketName:
+      bucketNameOverride ||
+      annotations["neki.dev/rustfs-bucket"] ||
+      EMPTY_VALUE,
     branchCount: projectBranches.length,
     readyBranchCount: projectBranches.filter((branch) => branch.ready).length,
     latestBranchName: latestBranch?.branchName ?? EMPTY_VALUE,
@@ -1901,6 +1931,92 @@ async function getNeonProject(
     plural: "projects",
     name: projectName,
   })) as KubernetesCustomObject
+}
+
+async function resolveNeonBucketConfig({
+  customObjectsApi,
+  objectApi,
+  namespace,
+  clusterName,
+}: {
+  customObjectsApi: CustomObjectsApi
+  objectApi: KubernetesObjectApi
+  namespace: string
+  clusterName: string
+}) {
+  const cluster = (await customObjectsApi.getNamespacedCustomObject({
+    group: "neon.oltp.molnett.org",
+    version: "v1alpha1",
+    namespace,
+    plural: "clusters",
+    name: clusterName,
+  })) as KubernetesCustomObject
+  const spec = getRecord(cluster.spec)
+  const secretRef = getRecord(spec?.bucketCredentialsSecret)
+  const secretName = getString(secretRef?.name)
+  const secretNamespace = getString(secretRef?.namespace) || namespace
+
+  if (!secretName) {
+    throw new Error(
+      `Neon cluster ${namespace}/${clusterName} does not reference bucketCredentialsSecret.name.`,
+    )
+  }
+
+  const secret = await objectApi.read<SecretObject>({
+    apiVersion: "v1",
+    kind: "Secret",
+    metadata: {
+      name: secretName,
+      namespace: secretNamespace,
+    },
+  })
+  const bucketName = decodeSecretValue(secret, "BUCKET_NAME")
+  const endpoint = decodeOptionalSecretValue(secret, "AWS_ENDPOINT_URL")
+
+  validateBucketName(bucketName)
+
+  return {
+    bucketName,
+    endpoint,
+    secretNamespace,
+  }
+}
+
+async function resolveProjectBuckets({
+  customObjectsApi,
+  objectApi,
+  namespace,
+  projects,
+}: {
+  customObjectsApi: CustomObjectsApi
+  objectApi: KubernetesObjectApi
+  namespace: string
+  projects: KubernetesCustomObject[]
+}) {
+  const bucketByProject = new Map<string, string>()
+
+  for (const project of projects) {
+    const projectName = project.metadata?.name
+    const clusterName = getString(getRecord(project.spec)?.cluster)
+
+    if (!projectName || !clusterName) {
+      continue
+    }
+
+    try {
+      const bucket = await resolveNeonBucketConfig({
+        customObjectsApi,
+        objectApi,
+        namespace,
+        clusterName,
+      })
+      bucketByProject.set(projectName, bucket.bucketName)
+    } catch {
+      // Keep the page usable if bucket credentials are temporarily unavailable.
+    }
+  }
+
+  return bucketByProject
 }
 
 async function ensureNeonBranchIsNew(
@@ -2585,6 +2701,11 @@ function decodeSecretValue(secret: SecretObject, key: string) {
   }
 
   return Buffer.from(encoded, "base64").toString("utf8")
+}
+
+function decodeOptionalSecretValue(secret: SecretObject, key: string) {
+  const encoded = secret.data?.[key]
+  return encoded ? Buffer.from(encoded, "base64").toString("utf8") : ""
 }
 
 function generatePassword() {

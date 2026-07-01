@@ -51,7 +51,7 @@ export function DatabasesForm({
   const [result, formAction, isPending] = useActionState(action, initialResult)
   const defaultProjectName = `${serviceName}-project`
   const defaultBranchName = `${serviceName}-main`
-  const defaultBucketName = `neon-${serviceName}-project`
+  const defaultBucketName = "neon"
 
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
@@ -165,8 +165,8 @@ export function DatabasesForm({
               </select>
             </Field>
             <Field
-              description="S3 bucket created in RustFS."
-              label="RustFS bucket"
+              description="Resolved from the Neon Cluster bucketCredentialsSecret on submit."
+              label="Neon storage bucket"
             >
               <input
                 name="bucketName"
@@ -176,6 +176,7 @@ export function DatabasesForm({
                 maxLength={63}
                 required
                 className={inputClassName}
+                readOnly
               />
             </Field>
             <Field
@@ -251,7 +252,8 @@ export function DatabasesForm({
                 <p className="mt-1 text-blue-900 text-xs">
                   The server action writes the Neon host, port, database,
                   username, empty local password, database URL, project, branch,
-                  and RustFS bucket into the existing Dapr Vault secret.
+                  and the active Neon storage bucket into the existing Dapr
+                  Vault secret.
                 </p>
               </div>
             </div>
