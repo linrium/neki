@@ -3,11 +3,14 @@
 This installs RustFS with Helm and updates Neon to use RustFS as its
 S3-compatible object storage.
 
-The installer uses the published Helm repository:
+The installer first tries the published Helm repository:
 
 ```text
 https://charts.rustfs.com
 ```
+
+If that repository is unavailable, it falls back to the chart checked into the
+RustFS GitHub repo at `helm/rustfs`.
 
 Default local-dev shape:
 
@@ -71,6 +74,9 @@ new S3 settings.
 - `RUSTFS_CHART_REPO_URL`, default `https://charts.rustfs.com`
 - `RUSTFS_CHART`, default `rustfs/rustfs`
 - `RUSTFS_CHART_VERSION`, default `0.8.0`
+- `RUSTFS_CHART_SOURCE`, default `auto`; use `repo` or `github` to force a source
+- `RUSTFS_CHART_GITHUB_REPO`, default `https://github.com/rustfs/rustfs`
+- `RUSTFS_CHART_GITHUB_REF`, default `main`
 - `RUSTFS_ACCESS_KEY`, default `neki-rustfs`
 - `RUSTFS_SECRET_KEY`, default `neki-rustfs-secret`
 - `RUSTFS_REGION`, default `us-east-1`

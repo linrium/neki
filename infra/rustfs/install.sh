@@ -9,6 +9,9 @@ RUSTFS_CHART_REPO_NAME="${RUSTFS_CHART_REPO_NAME:-rustfs}"
 RUSTFS_CHART_REPO_URL="${RUSTFS_CHART_REPO_URL:-https://charts.rustfs.com}"
 RUSTFS_CHART="${RUSTFS_CHART:-rustfs/rustfs}"
 RUSTFS_CHART_VERSION="${RUSTFS_CHART_VERSION:-0.8.0}"
+RUSTFS_CHART_SOURCE="${RUSTFS_CHART_SOURCE:-auto}"
+RUSTFS_CHART_GITHUB_REPO="${RUSTFS_CHART_GITHUB_REPO:-https://github.com/rustfs/rustfs}"
+RUSTFS_CHART_GITHUB_REF="${RUSTFS_CHART_GITHUB_REF:-main}"
 RUSTFS_ACCESS_KEY="${RUSTFS_ACCESS_KEY:-neki-rustfs}"
 RUSTFS_SECRET_KEY="${RUSTFS_SECRET_KEY:-neki-rustfs-secret}"
 RUSTFS_REGION="${RUSTFS_REGION:-us-east-1}"
@@ -41,22 +44,91 @@ rollout_if_present() {
 
 need helm
 need kubectl
+need curl
 
-echo "Adding RustFS Helm repository"
-helm repo add "${RUSTFS_CHART_REPO_NAME}" "${RUSTFS_CHART_REPO_URL}"
-helm repo update
+CHART_TMP_DIR=""
 
-echo "Installing RustFS ${RUSTFS_CHART_VERSION} into namespace ${RUSTFS_NAMESPACE}"
-helm upgrade --install "${RUSTFS_RELEASE}" "${RUSTFS_CHART}" \
-  --version "${RUSTFS_CHART_VERSION}" \
-  --namespace "${RUSTFS_NAMESPACE}" \
-  --create-namespace \
-  --values "${SCRIPT_DIR}/values.yaml" \
-  --set-string "secret.rustfs.access_key=${RUSTFS_ACCESS_KEY}" \
-  --set-string "secret.rustfs.secret_key=${RUSTFS_SECRET_KEY}" \
-  --set-string "config.rustfs.region=${RUSTFS_REGION}" \
-  --wait \
+cleanup() {
+  if [[ -n "${CHART_TMP_DIR}" && -d "${CHART_TMP_DIR}" ]]; then
+    rm -rf "${CHART_TMP_DIR}"
+  fi
+}
+
+trap cleanup EXIT
+
+download_github_chart() {
+  local archive_url="${RUSTFS_CHART_GITHUB_REPO}/archive/${RUSTFS_CHART_GITHUB_REF}.tar.gz"
+  local archive_path
+  local chart_path
+
+  CHART_TMP_DIR="$(mktemp -d)"
+  archive_path="${CHART_TMP_DIR}/rustfs.tar.gz"
+
+  echo "Downloading RustFS Helm chart from ${archive_url}" >&2
+  curl -fsSL "${archive_url}" -o "${archive_path}"
+  tar -xzf "${archive_path}" -C "${CHART_TMP_DIR}"
+
+  chart_path="$(find "${CHART_TMP_DIR}" -path "*/helm/rustfs/Chart.yaml" -print -quit)"
+  if [[ -z "${chart_path}" ]]; then
+    echo "Could not find helm/rustfs/Chart.yaml in ${archive_url}" >&2
+    exit 1
+  fi
+
+  dirname "${chart_path}"
+}
+
+resolve_chart() {
+  case "${RUSTFS_CHART_SOURCE}" in
+    repo)
+      echo "Adding RustFS Helm repository"
+      helm repo add --force-update "${RUSTFS_CHART_REPO_NAME}" "${RUSTFS_CHART_REPO_URL}"
+      helm repo update
+      RUSTFS_CHART_REF="${RUSTFS_CHART}"
+      RUSTFS_USE_CHART_VERSION=true
+      ;;
+    github)
+      RUSTFS_CHART_REF="$(download_github_chart)"
+      RUSTFS_USE_CHART_VERSION=false
+      ;;
+    auto)
+      echo "Adding RustFS Helm repository"
+      if helm repo add --force-update "${RUSTFS_CHART_REPO_NAME}" "${RUSTFS_CHART_REPO_URL}" && helm repo update; then
+        RUSTFS_CHART_REF="${RUSTFS_CHART}"
+        RUSTFS_USE_CHART_VERSION=true
+      else
+        echo "RustFS Helm repository is unavailable; falling back to GitHub chart source"
+        RUSTFS_CHART_REF="$(download_github_chart)"
+        RUSTFS_USE_CHART_VERSION=false
+      fi
+      ;;
+    *)
+      echo "Unsupported RUSTFS_CHART_SOURCE=${RUSTFS_CHART_SOURCE}; use auto, repo, or github" >&2
+      exit 1
+      ;;
+  esac
+}
+
+resolve_chart
+
+echo "Installing RustFS into namespace ${RUSTFS_NAMESPACE} from ${RUSTFS_CHART_REF}"
+HELM_ARGS=(
+  upgrade
+  --install "${RUSTFS_RELEASE}" "${RUSTFS_CHART_REF}"
+  --namespace "${RUSTFS_NAMESPACE}"
+  --create-namespace
+  --values "${SCRIPT_DIR}/values.yaml"
+  --set-string "secret.rustfs.access_key=${RUSTFS_ACCESS_KEY}"
+  --set-string "secret.rustfs.secret_key=${RUSTFS_SECRET_KEY}"
+  --set-string "config.rustfs.region=${RUSTFS_REGION}"
+  --wait
   --timeout "${TIMEOUT}"
+)
+
+if [[ "${RUSTFS_USE_CHART_VERSION}" == "true" ]]; then
+  HELM_ARGS+=(--version "${RUSTFS_CHART_VERSION}")
+fi
+
+helm "${HELM_ARGS[@]}"
 
 echo "Waiting for RustFS"
 rollout_if_present "${RUSTFS_NAMESPACE}" deployment "${RUSTFS_RELEASE}"

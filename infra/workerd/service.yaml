@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${NAME}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: workerd
+    app.kubernetes.io/instance: ${NAME}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: workerd
+    app.kubernetes.io/instance: ${NAME}
+  ports:
+    - name: http
+      port: ${SERVICE_PORT}
+      targetPort: http
